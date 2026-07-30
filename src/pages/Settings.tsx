@@ -248,7 +248,7 @@ function RecurringCard() {
             <div key={r.id} className="flex items-center justify-between rounded-md px-2 py-1.5 text-sm hover:bg-muted">
               <div className={cn('flex items-center gap-2', !r.is_active && 'text-muted-foreground line-through')}>
                 <Repeat className="h-3.5 w-3.5" />
-                {r.name} — {formatMoney(r.amount, currency)}/{r.frequency}
+                {r.name} - {formatMoney(r.amount, currency)}/{r.frequency}
               </div>
               <Button size="sm" variant="outline" onClick={() => toggleActive(r.id, r.is_active)}>
                 {r.is_active ? 'Pause' : 'Resume'}
@@ -299,7 +299,7 @@ function BillsCard() {
         <div className="space-y-1">
           {bills.map((b) => (
             <div key={b.id} className="flex items-center justify-between rounded-md px-2 py-1.5 text-sm hover:bg-muted">
-              <div className={b.is_paid ? 'text-muted-foreground line-through' : ''}>{b.name} — {formatMoney(b.amount, currency)} · due {formatDate(b.due_date)}</div>
+              <div className={b.is_paid ? 'text-muted-foreground line-through' : ''}>{b.name} - {formatMoney(b.amount, currency)} · due {formatDate(b.due_date)}</div>
               {!b.is_paid && (
                 <Button size="sm" variant="outline" onClick={() => updateBill.mutate({ id: b.id, payload: { is_paid: true } })}>Mark paid</Button>
               )}
@@ -363,7 +363,7 @@ function DataExportCard() {
     <Card>
       <CardHeader>
         <CardTitle className="text-base">Your data</CardTitle>
-        <CardDescription>Export every transaction any time — it's yours.</CardDescription>
+        <CardDescription>Export every transaction any time - it's yours.</CardDescription>
       </CardHeader>
       <CardContent className="flex gap-2">
         <Button variant="outline" onClick={() => exportData('csv')} disabled={!!exporting}>

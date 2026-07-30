@@ -41,7 +41,7 @@ export default function Dashboard() {
 
     const loanDues = [...nextPaymentPerLoan.values()].map((p) => ({
       key: `loan-${p.id}`,
-      label: `${loanNameById[p.loan_id] ?? 'Loan'} — EMI ${p.installment_number}`,
+      label: `${loanNameById[p.loan_id] ?? 'Loan'} - EMI ${p.installment_number}`,
       amount: p.principal_component + p.interest_component,
       due_date: p.due_date,
     }));
@@ -127,7 +127,7 @@ export default function Dashboard() {
               </div>
             ))}
             {upcomingDues.length === 0 && (
-              <p className="text-sm text-muted-foreground">Nothing due — you're all caught up.</p>
+              <p className="text-sm text-muted-foreground">Nothing due - you're all caught up.</p>
             )}
           </CardContent>
         </Card>
@@ -139,7 +139,7 @@ export default function Dashboard() {
           <Link to="/transactions" className="text-sm text-primary hover:underline">View all</Link>
         </CardHeader>
         <CardContent className="space-y-1">
-          {recentTx.length === 0 && <p className="text-sm text-muted-foreground">No transactions yet — add your first one.</p>}
+          {recentTx.length === 0 && <p className="text-sm text-muted-foreground">No transactions yet - add your first one.</p>}
           {recentTx.map((t) => (
             <button
               key={t.id}

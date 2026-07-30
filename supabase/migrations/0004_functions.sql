@@ -1,4 +1,4 @@
--- Atomic balance adjustment — called via PostgREST RPC
+-- Atomic balance adjustment - called via PostgREST RPC
 -- (POST /rpc/adjust_account_balance) from the edge function instead of a
 -- read-current-balance-then-PATCH round trip in application code, which
 -- would race under concurrent requests to the same account.

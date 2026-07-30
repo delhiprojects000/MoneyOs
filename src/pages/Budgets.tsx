@@ -66,7 +66,7 @@ export default function Budgets() {
             </Card>
           );
         })}
-        {budgets.length === 0 && <p className="col-span-full text-sm text-muted-foreground">No budgets yet — set one to keep spending on track.</p>}
+        {budgets.length === 0 && <p className="col-span-full text-sm text-muted-foreground">No budgets yet - set one to keep spending on track.</p>}
       </div>
       )}
 

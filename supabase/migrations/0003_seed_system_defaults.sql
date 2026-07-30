@@ -1,4 +1,4 @@
--- System-wide default categories and payment methods (user_id null) — every
+-- System-wide default categories and payment methods (user_id null) - every
 -- user sees these automatically (queries filter `user_id = me or user_id is
 -- null`), on top of whatever custom ones they add themselves.
 

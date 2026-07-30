@@ -3,25 +3,25 @@
 // DEPLOYMENT NOTE: this file is written as a self-contained module, but the
 // Oracle VM's edge-runtime container runs in single "main-service" mode
 // (`command: start --main-service /home/deno/functions`, see
-// docker-compose.yml) — ONE index.ts at
+// docker-compose.yml) - ONE index.ts at
 // /mnt/storage/supabase/functions/index.ts handles every /functions/v1/*
 // request for every app on the box (it already serves design-andhra-pradesh's
 // /upload and /hello routes). There is no per-directory-function deploy like
 // portfolio/workos-personal use on real Supabase Cloud. So this file's
 // `moneyosRouter` is spliced into that shared entrypoint behind an
-// `if (url.pathname.startsWith("/moneyos/"))` branch — see
+// `if (url.pathname.startsWith("/moneyos/"))` branch - see
 // DEVDOC.md "Deploying the backend" for the exact procedure. Treat this file
 // as the source of truth for MoneyOS's own logic; the shared file on the VM
 // additionally contains design-andhra-pradesh's unrelated /upload + /hello
 // handlers, untouched.
 //
 // Auth: hand-rolled username/password + JWT (bcrypt + HS256 via Web Crypto),
-// same shape as sibling portfolio/workos-personal apps — no Supabase Auth
+// same shape as sibling portfolio/workos-personal apps - no Supabase Auth
 // dependency. Unlike those two (which use a real managed Supabase project),
 // this talks directly to the box's own PostgREST over the internal Docker
 // network (http://rest:3000) using the genuine SERVICE_ROLE_KEY to bypass
 // RLS, since supabase-js would be unnecessary bundle weight on a
-// memory-constrained (~950Mi) shared container — plain fetch() against
+// memory-constrained (~950Mi) shared container - plain fetch() against
 // PostgREST's REST API is enough for what this needs.
 
 import bcrypt from "npm:bcryptjs@2";
@@ -32,7 +32,7 @@ const POSTGREST_URL = Deno.env.get("POSTGREST_URL") ?? "http://rest:3000";
 const SERVICE_ROLE_KEY = Deno.env.get("SERVICE_ROLE_KEY") ?? "";
 const MONEYOS_JWT_SECRET = Deno.env.get("MONEYOS_JWT_SECRET") ?? "";
 const SCHEMA = "moneyos";
-const JWT_TTL_SECONDS = 60 * 60 * 24 * 30; // 30 days — daily-use personal tool, not a shared workspace
+const JWT_TTL_SECONDS = 60 * 60 * 24 * 30; // 30 days - daily-use personal tool, not a shared workspace
 
 // --- JSON / CORS helpers ----------------------------------------------------
 
@@ -213,7 +213,7 @@ async function handleUpdateMe(req: Request, user: AuthedUser): Promise<Response>
 
 // --- Generic data gateway ------------------------------------------------
 // Every table except transactions/loan_payments (which need server-side
-// balance math / schedule linkage — see dedicated routes below).
+// balance math / schedule linkage - see dedicated routes below).
 
 const DATA_TABLES = new Set(["categories", "payment_methods", "accounts", "recurring_rules", "loans", "budgets", "goals", "bills", "attachments"]);
 
@@ -455,7 +455,7 @@ async function handlePayLoanInstallment(req: Request, loanId: string, paymentId:
     method: "POST", single: true,
     body: JSON.stringify({
       user_id: user.sub, account_id: loan.account_id, category_id: loan.category_id, type: "expense",
-      amount, description: `${loan.name} — EMI ${payment.installment_number}/${loan.tenure_months}`,
+      amount, description: `${loan.name} - EMI ${payment.installment_number}/${loan.tenure_months}`,
       occurred_at: new Date().toISOString(),
     }),
   });

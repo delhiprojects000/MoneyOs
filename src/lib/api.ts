@@ -1,4 +1,4 @@
-// Single client for the `moneyos` Edge Function — every read/write in the
+// Single client for the `moneyos` Edge Function - every read/write in the
 // app goes through this instead of calling Postgres/PostgREST directly,
 // mirroring the sibling portfolio/workos-personal projects' src/lib/api.ts.
 

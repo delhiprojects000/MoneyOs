@@ -1,7 +1,7 @@
--- MoneyOS — core schema, in its own `moneyos` Postgres schema (not `public`)
+-- MoneyOS - core schema, in its own `moneyos` Postgres schema (not `public`)
 -- so it's cleanly namespaced from the other apps sharing this Postgres
 -- instance (design-andhra-pradesh, workos-personal's storage). Auth is
--- hand-rolled (bcrypt + self-issued JWT in the edge function) — no
+-- hand-rolled (bcrypt + self-issued JWT in the edge function) - no
 -- dependency on Supabase Auth/GoTrue, matching the sibling portfolio/
 -- workos-personal/design-andhra-pradesh apps on this box.
 
@@ -24,7 +24,7 @@ create type moneyos.budget_period as enum ('weekly', 'monthly', 'yearly');
 create type moneyos.goal_status as enum ('active', 'completed', 'archived');
 
 -- ---------------------------------------------------------------------------
--- users — replaces auth.users entirely, see supabase/functions moneyos routes
+-- users - replaces auth.users entirely, see supabase/functions moneyos routes
 -- ---------------------------------------------------------------------------
 create table moneyos.users (
   id uuid primary key default gen_random_uuid(),
@@ -40,7 +40,7 @@ create table moneyos.users (
 );
 
 -- ---------------------------------------------------------------------------
--- categories — user_id null = system default, shared by every user
+-- categories - user_id null = system default, shared by every user
 -- ---------------------------------------------------------------------------
 create table moneyos.categories (
   id uuid primary key default gen_random_uuid(),
@@ -57,7 +57,7 @@ create table moneyos.categories (
 create index categories_user_id_idx on moneyos.categories(user_id);
 
 -- ---------------------------------------------------------------------------
--- payment_methods — user_id null = system default (Cash, UPI apps, cards, ...)
+-- payment_methods - user_id null = system default (Cash, UPI apps, cards, ...)
 -- ---------------------------------------------------------------------------
 create table moneyos.payment_methods (
   id uuid primary key default gen_random_uuid(),
@@ -72,7 +72,7 @@ create table moneyos.payment_methods (
 create index payment_methods_user_id_idx on moneyos.payment_methods(user_id);
 
 -- ---------------------------------------------------------------------------
--- accounts — wallets (cash/bank/card/upi/savings/credit); current_balance is
+-- accounts - wallets (cash/bank/card/upi/savings/credit); current_balance is
 -- maintained by the edge function on every transaction write, not a trigger,
 -- so balance math + group-expense derivation stay in one auditable place.
 -- ---------------------------------------------------------------------------
@@ -94,7 +94,7 @@ create table moneyos.accounts (
 create index accounts_user_id_idx on moneyos.accounts(user_id);
 
 -- ---------------------------------------------------------------------------
--- recurring_rules — subscriptions, bills, recurring income
+-- recurring_rules - subscriptions, bills, recurring income
 -- ---------------------------------------------------------------------------
 create table moneyos.recurring_rules (
   id uuid primary key default gen_random_uuid(),
@@ -121,7 +121,7 @@ create index recurring_rules_user_id_idx on moneyos.recurring_rules(user_id);
 create index recurring_rules_next_run_idx on moneyos.recurring_rules(user_id, next_run_date) where is_active;
 
 -- ---------------------------------------------------------------------------
--- loans — EMI/loan tracker; loan_payments (below) is the amortization schedule
+-- loans - EMI/loan tracker; loan_payments (below) is the amortization schedule
 -- ---------------------------------------------------------------------------
 create table moneyos.loans (
   id uuid primary key default gen_random_uuid(),
@@ -143,8 +143,8 @@ create table moneyos.loans (
 create index loans_user_id_idx on moneyos.loans(user_id);
 
 -- ---------------------------------------------------------------------------
--- transactions — the ledger. `amount` is always what actually hit the
--- account (for a group expense, that's the user's own share only —
+-- transactions - the ledger. `amount` is always what actually hit the
+-- account (for a group expense, that's the user's own share only -
 -- group_total_amount/group_participant_count/group_reason are kept
 -- separately for reporting, e.g. "₹X spent across N group hangouts").
 -- occurred_at is a full timestamp (date + time), not just a date.
@@ -177,7 +177,7 @@ create index transactions_user_category_idx on moneyos.transactions(user_id, cat
 create index transactions_user_account_idx on moneyos.transactions(user_id, account_id);
 
 -- ---------------------------------------------------------------------------
--- loan_payments — generated amortization schedule, one row per installment
+-- loan_payments - generated amortization schedule, one row per installment
 -- ---------------------------------------------------------------------------
 create table moneyos.loan_payments (
   id uuid primary key default gen_random_uuid(),
@@ -235,7 +235,7 @@ create table moneyos.goals (
 create index goals_user_id_idx on moneyos.goals(user_id);
 
 -- ---------------------------------------------------------------------------
--- bills — standalone reminders (not necessarily tied to a recurring_rule)
+-- bills - standalone reminders (not necessarily tied to a recurring_rule)
 -- ---------------------------------------------------------------------------
 create table moneyos.bills (
   id uuid primary key default gen_random_uuid(),
@@ -255,7 +255,7 @@ create table moneyos.bills (
 create index bills_user_due_idx on moneyos.bills(user_id, due_date);
 
 -- ---------------------------------------------------------------------------
--- attachments — receipt metadata; the file itself lives on the CDN path
+-- attachments - receipt metadata; the file itself lives on the CDN path
 -- ---------------------------------------------------------------------------
 create table moneyos.attachments (
   id uuid primary key default gen_random_uuid(),
@@ -269,7 +269,7 @@ create table moneyos.attachments (
 create index attachments_transaction_id_idx on moneyos.attachments(transaction_id);
 
 -- ---------------------------------------------------------------------------
--- activity_log — lightweight audit trail
+-- activity_log - lightweight audit trail
 -- ---------------------------------------------------------------------------
 create table moneyos.activity_log (
   id uuid primary key default gen_random_uuid(),

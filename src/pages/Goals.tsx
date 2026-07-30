@@ -95,7 +95,7 @@ export default function Goals() {
             </Card>
           );
         })}
-        {goals.length === 0 && <p className="col-span-full text-sm text-muted-foreground">No goals yet — set one to start saving with a plan.</p>}
+        {goals.length === 0 && <p className="col-span-full text-sm text-muted-foreground">No goals yet - set one to start saving with a plan.</p>}
       </div>
       )}
 

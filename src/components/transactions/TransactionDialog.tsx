@@ -233,7 +233,7 @@ export function TransactionDialog({ open, onOpenChange, transaction, defaultAcco
             <Label className="mb-1 block">Receipt</Label>
             <label className="flex cursor-pointer items-center gap-2 rounded-md border border-dashed border-border px-3 py-2 text-sm text-muted-foreground hover:bg-muted">
               {uploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Paperclip className="h-4 w-4" />}
-              {attachmentUrl ? 'Receipt attached — tap to replace' : 'Attach a photo'}
+              {attachmentUrl ? 'Receipt attached - tap to replace' : 'Attach a photo'}
               <input type="file" accept="image/*" className="hidden" onChange={handleFileChange} />
             </label>
           </div>
@@ -259,7 +259,7 @@ export function TransactionDialog({ open, onOpenChange, transaction, defaultAcco
                     <Input type="number" value={groupCount} onChange={(e) => setGroupCount(e.target.value)} placeholder="4" />
                   </div>
                   <p className="col-span-2 text-xs text-muted-foreground">
-                    Only your share (the Amount field above) is subtracted from your account — the total and headcount are kept just for reporting.
+                    Only your share (the Amount field above) is subtracted from your account - the total and headcount are kept just for reporting.
                   </p>
                 </div>
               )}
