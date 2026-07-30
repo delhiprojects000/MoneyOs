@@ -157,3 +157,20 @@
 .tabular-nums {
   font-variant-numeric: tabular-nums;
 }
+
+/* ===========================
+   LOGO MONOCHROME
+   ===========================
+   logo-mark.png (same ADK Dev mark used in portfolio/workos-personal) is a
+   solid brand-violet mark on a transparent background - invisible against
+   dark surfaces in dark mode, and clashes with MoneyOS's selectable accent
+   palettes if left its native purple. brightness(0) flattens any opaque
+   pixel to black while preserving the alpha shape; invert(1) flips that to
+   white for dark mode, so it always reads against the current theme
+   regardless of which accent palette is active. */
+.logo-mono {
+  filter: brightness(0);
+}
+.dark .logo-mono {
+  filter: brightness(0) invert(1);
+}

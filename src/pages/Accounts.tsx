@@ -112,6 +112,7 @@ function AccountDialog({ open, onOpenChange, account }: { open: boolean; onOpenC
   const [name, setName] = useState(account?.name || '');
   const [type, setType] = useState<AccountType>(account?.type || 'bank');
   const [opening, setOpening] = useState(account ? String(account.opening_balance) : '0');
+  const [currentBalance, setCurrentBalance] = useState('0');
   const [creditLimit, setCreditLimit] = useState('');
   const [billingDay, setBillingDay] = useState('');
   const [autopayEnabled, setAutopayEnabled] = useState(false);
@@ -125,12 +126,13 @@ function AccountDialog({ open, onOpenChange, account }: { open: boolean; onOpenC
       setName(account.name);
       setType(account.type);
       setOpening(String(account.opening_balance));
+      setCurrentBalance(String(account.type === 'credit' ? -account.current_balance : account.current_balance));
       setCreditLimit(account.credit_limit != null ? String(account.credit_limit) : '');
       setBillingDay(account.billing_day != null ? String(account.billing_day) : '');
       setAutopayEnabled(account.autopay_enabled);
       setAutopayAccountId(account.autopay_account_id || '');
     } else {
-      setName(''); setType('bank'); setOpening('0');
+      setName(''); setType('bank'); setOpening('0'); setCurrentBalance('0');
       setCreditLimit(''); setBillingDay(''); setAutopayEnabled(false); setAutopayAccountId('');
     }
   }, [open, account]);
@@ -146,7 +148,8 @@ function AccountDialog({ open, onOpenChange, account }: { open: boolean; onOpenC
     } : {};
     try {
       if (account) {
-        await updateAccount.mutateAsync({ id: account.id, payload: { name, type, ...creditFields } });
+        const balancePayload = type === 'credit' ? -Number(currentBalance) : Number(currentBalance);
+        await updateAccount.mutateAsync({ id: account.id, payload: { name, type, current_balance: balancePayload, ...creditFields } });
       } else {
         await createAccount.mutateAsync({ name, type, opening_balance: Number(opening), current_balance: Number(opening), ...creditFields });
       }
@@ -182,10 +185,18 @@ function AccountDialog({ open, onOpenChange, account }: { open: boolean; onOpenC
               </SelectContent>
             </Select>
           </div>
-          {!account && (
+          {!account ? (
             <div>
               <Label>Opening balance</Label>
               <Input type="number" value={opening} onChange={(e) => setOpening(e.target.value)} />
+            </div>
+          ) : (
+            <div>
+              <Label>{type === 'credit' ? 'Current amount owed' : 'Current balance'}</Label>
+              <Input type="number" value={currentBalance} onChange={(e) => setCurrentBalance(e.target.value)} />
+              <p className="mt-1 text-xs text-muted-foreground">
+                Corrects the balance directly - use this to match your real-world {type === 'credit' ? 'card statement' : 'account balance'}, it won't create a transaction.
+              </p>
             </div>
           )}
           {type === 'credit' && (

@@ -7,6 +7,7 @@ import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { toast } from 'sonner';
 import { Loader2 } from 'lucide-react';
+import logoMark from '@/assets/logo-mark.png';
 
 export default function Auth() {
   const { user, loading, signIn, signUp } = useAuth();
@@ -39,7 +40,9 @@ export default function Auth() {
     <div className="flex min-h-screen items-center justify-center bg-background p-4">
       <div className="w-full max-w-sm">
         <div className="mb-8 flex flex-col items-center gap-2 text-center">
-          <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-primary text-2xl font-bold text-primary-foreground">₹</div>
+          <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-primary/10 p-2">
+            <img src={logoMark} alt="" className="h-full w-full object-contain logo-mono" />
+          </div>
           <h1 className="text-2xl font-semibold">MoneyOS</h1>
           <p className="text-sm text-muted-foreground">Your money, planned and tracked.</p>
         </div>

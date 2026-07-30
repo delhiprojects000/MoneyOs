@@ -12,6 +12,15 @@ import { QuickAddButton } from '@/components/transactions/QuickAddButton';
 import { NotificationsBell } from '@/components/layout/NotificationsBell';
 import { useProcessDue } from '@/hooks/useMoneyData';
 import { cn } from '@/lib/utils';
+import logoMark from '@/assets/logo-mark.png';
+
+function LogoBadge({ className }: { className?: string }) {
+  return (
+    <div className={cn('flex shrink-0 items-center justify-center rounded-lg bg-primary/10 p-1.5', className)}>
+      <img src={logoMark} alt="" className="h-full w-full object-contain logo-mono" />
+    </div>
+  );
+}
 
 const NAV_ITEMS = [
   { to: '/', label: 'Dashboard', icon: LayoutDashboard, end: true },
@@ -69,7 +78,7 @@ export function AppShell() {
         <aside className="sticky top-0 hidden h-screen w-64 shrink-0 flex-col border-r border-border p-4 md:flex">
           <div className="mb-6 flex items-center justify-between px-2">
             <div className="flex items-center gap-2">
-              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary text-primary-foreground font-bold">₹</div>
+              <LogoBadge className="h-8 w-8" />
               <span className="text-lg font-semibold">MoneyOS</span>
             </div>
             <NotificationsBell />
@@ -93,7 +102,7 @@ export function AppShell() {
           {/* Mobile top bar */}
           <header className="sticky top-0 z-30 flex items-center justify-between border-b border-border bg-background/95 px-4 py-3 backdrop-blur md:hidden">
             <div className="flex items-center gap-2">
-              <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-primary text-primary-foreground text-sm font-bold">₹</div>
+              <LogoBadge className="h-7 w-7" />
               <span className="font-semibold">MoneyOS</span>
             </div>
             <div className="flex items-center gap-1">
@@ -104,7 +113,7 @@ export function AppShell() {
               </SheetTrigger>
               <SheetContent side="left" className="w-64 p-4">
                 <div className="mb-6 flex items-center gap-2 px-2">
-                  <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary text-primary-foreground font-bold">₹</div>
+                  <LogoBadge className="h-8 w-8" />
                   <span className="text-lg font-semibold">MoneyOS</span>
                 </div>
                 <NavLinks onNavigate={() => setMobileOpen(false)} />
