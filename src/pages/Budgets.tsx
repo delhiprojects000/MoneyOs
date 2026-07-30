@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
@@ -6,14 +6,14 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { useBudgets, useCategories, useCreateBudget, useDeleteBudget, useReportsSummary } from '@/hooks/useMoneyData';
+import { useBudgets, useCategories, useCreateBudget, useUpdateBudget, useDeleteBudget, useReportsSummary } from '@/hooks/useMoneyData';
 import { useAuth } from '@/contexts/AuthContext';
 import { formatMoney } from '@/lib/format';
-import { Plus, Trash2 } from 'lucide-react';
+import { Plus, Trash2, Pencil } from 'lucide-react';
 import { toast } from 'sonner';
 import { preventAccidentalDialogClose } from '@/lib/utils';
 import { ProgressCardGridSkeleton } from '@/components/skeletons/primitives';
-import type { BudgetPeriod } from '@/lib/api';
+import type { Budget, BudgetPeriod } from '@/lib/api';
 
 export default function Budgets() {
   const { user } = useAuth();
@@ -23,6 +23,7 @@ export default function Budgets() {
   const { data: summary } = useReportsSummary('month');
   const deleteBudget = useDeleteBudget();
   const [open, setOpen] = useState(false);
+  const [editing, setEditing] = useState<Budget | undefined>(undefined);
 
   const categoryName = Object.fromEntries(categories.map((c) => [c.id, c.name]));
   const spentByCategory = summary?.by_category ?? {};
@@ -35,7 +36,7 @@ export default function Budgets() {
           <h1 className="text-2xl font-semibold">Budgets</h1>
           <p className="text-muted-foreground">Set limits and watch spend stay in line.</p>
         </div>
-        <Button onClick={() => setOpen(true)}><Plus className="mr-2 h-4 w-4" />New budget</Button>
+        <Button onClick={() => { setEditing(undefined); setOpen(true); }}><Plus className="mr-2 h-4 w-4" />New budget</Button>
       </div>
 
       {isLoading ? <ProgressCardGridSkeleton count={4} /> : (
@@ -52,9 +53,14 @@ export default function Budgets() {
                     <p className="font-medium">{b.category_id ? categoryName[b.category_id] || 'Category' : 'Overall spending'}</p>
                     <p className="text-xs capitalize text-muted-foreground">{b.period}</p>
                   </div>
-                  <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground" onClick={() => deleteBudget.mutate(b.id)}>
-                    <Trash2 className="h-3.5 w-3.5" />
-                  </Button>
+                  <div className="flex gap-1">
+                    <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground" onClick={() => { setEditing(b); setOpen(true); }}>
+                      <Pencil className="h-3.5 w-3.5" />
+                    </Button>
+                    <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground" onClick={() => deleteBudget.mutate(b.id)}>
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </Button>
+                  </div>
                 </div>
                 <Progress value={pct} className={over ? '[&>div]:bg-destructive' : ''} />
                 <div className="mt-2 flex items-center justify-between text-sm">
@@ -70,30 +76,52 @@ export default function Budgets() {
       </div>
       )}
 
-      <NewBudgetDialog open={open} onOpenChange={setOpen} />
+      <NewBudgetDialog open={open} onOpenChange={setOpen} budget={editing} />
     </div>
   );
 }
 
-function NewBudgetDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (o: boolean) => void }) {
+function NewBudgetDialog({ open, onOpenChange, budget }: { open: boolean; onOpenChange: (o: boolean) => void; budget?: Budget }) {
   const { data: categories = [] } = useCategories('expense');
   const createBudget = useCreateBudget();
+  const updateBudget = useUpdateBudget();
+  const isEdit = !!budget;
   const [categoryId, setCategoryId] = useState('overall');
   const [period, setPeriod] = useState<BudgetPeriod>('monthly');
   const [amount, setAmount] = useState('');
 
+  useEffect(() => {
+    if (!open) return;
+    if (budget) {
+      setCategoryId(budget.category_id || 'overall');
+      setPeriod(budget.period);
+      setAmount(String(budget.amount_limit));
+    } else {
+      setCategoryId('overall');
+      setPeriod('monthly');
+      setAmount('');
+    }
+  }, [open, budget]);
+
   const save = async () => {
     if (!amount) { toast.error('Enter an amount'); return; }
     try {
-      await createBudget.mutateAsync({
-        category_id: categoryId === 'overall' ? undefined : categoryId,
-        period,
-        amount_limit: Number(amount),
-        start_date: new Date().toISOString().slice(0, 10),
-      });
-      toast.success('Budget created');
+      if (isEdit) {
+        await updateBudget.mutateAsync({
+          id: budget!.id,
+          payload: { category_id: categoryId === 'overall' ? null : categoryId, period, amount_limit: Number(amount) },
+        });
+        toast.success('Budget updated');
+      } else {
+        await createBudget.mutateAsync({
+          category_id: categoryId === 'overall' ? undefined : categoryId,
+          period,
+          amount_limit: Number(amount),
+          start_date: new Date().toISOString().slice(0, 10),
+        });
+        toast.success('Budget created');
+      }
       onOpenChange(false);
-      setAmount('');
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Something went wrong');
     }
@@ -102,7 +130,7 @@ function NewBudgetDialog({ open, onOpenChange }: { open: boolean; onOpenChange: 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent {...preventAccidentalDialogClose}>
-        <DialogHeader><DialogTitle>New budget</DialogTitle></DialogHeader>
+        <DialogHeader><DialogTitle>{isEdit ? 'Edit budget' : 'New budget'}</DialogTitle></DialogHeader>
         <div className="space-y-4">
           <div>
             <Label>Category</Label>
@@ -132,7 +160,7 @@ function NewBudgetDialog({ open, onOpenChange }: { open: boolean; onOpenChange: 
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
-          <Button onClick={save}>Create</Button>
+          <Button onClick={save} disabled={createBudget.isPending || updateBudget.isPending}>{isEdit ? 'Save changes' : 'Create'}</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
@@ -8,7 +8,7 @@ import { Label } from '@/components/ui/label';
 import { useGoals, useCreateGoal, useUpdateGoal, useDeleteGoal } from '@/hooks/useMoneyData';
 import { useAuth } from '@/contexts/AuthContext';
 import { formatMoney, formatDate } from '@/lib/format';
-import { Plus, Trash2, Target, PartyPopper } from 'lucide-react';
+import { Plus, Trash2, Pencil, Target, PartyPopper } from 'lucide-react';
 import { toast } from 'sonner';
 import { preventAccidentalDialogClose } from '@/lib/utils';
 import { ProgressCardGridSkeleton } from '@/components/skeletons/primitives';
@@ -28,6 +28,7 @@ export default function Goals() {
   const updateGoal = useUpdateGoal();
   const deleteGoal = useDeleteGoal();
   const [open, setOpen] = useState(false);
+  const [editing, setEditing] = useState<Goal | undefined>(undefined);
   const [contributingTo, setContributingTo] = useState<Goal | undefined>(undefined);
   const [contribution, setContribution] = useState('');
 
@@ -51,7 +52,7 @@ export default function Goals() {
           <h1 className="text-2xl font-semibold">Goals</h1>
           <p className="text-muted-foreground">Save toward what matters.</p>
         </div>
-        <Button onClick={() => setOpen(true)}><Plus className="mr-2 h-4 w-4" />New goal</Button>
+        <Button onClick={() => { setEditing(undefined); setOpen(true); }}><Plus className="mr-2 h-4 w-4" />New goal</Button>
       </div>
 
       {isLoading ? <ProgressCardGridSkeleton count={3} className="lg:!grid-cols-3" /> : (
@@ -74,9 +75,14 @@ export default function Goals() {
                       {g.target_date && <p className="text-xs text-muted-foreground">by {formatDate(g.target_date)}</p>}
                     </div>
                   </div>
-                  <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground" onClick={() => deleteGoal.mutate(g.id)}>
-                    <Trash2 className="h-3.5 w-3.5" />
-                  </Button>
+                  <div className="flex gap-1">
+                    <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground" onClick={() => { setEditing(g); setOpen(true); }}>
+                      <Pencil className="h-3.5 w-3.5" />
+                    </Button>
+                    <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground" onClick={() => deleteGoal.mutate(g.id)}>
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </Button>
+                  </div>
                 </div>
                 <Progress value={pct} />
                 <div className="mt-2 flex items-center justify-between text-sm">
@@ -99,7 +105,7 @@ export default function Goals() {
       </div>
       )}
 
-      <NewGoalDialog open={open} onOpenChange={setOpen} />
+      <NewGoalDialog open={open} onOpenChange={setOpen} goal={editing} />
 
       <Dialog open={!!contributingTo} onOpenChange={(o) => !o && setContributingTo(undefined)}>
         <DialogContent {...preventAccidentalDialogClose}>
@@ -115,19 +121,36 @@ export default function Goals() {
   );
 }
 
-function NewGoalDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (o: boolean) => void }) {
+function NewGoalDialog({ open, onOpenChange, goal }: { open: boolean; onOpenChange: (o: boolean) => void; goal?: Goal }) {
   const createGoal = useCreateGoal();
+  const updateGoal = useUpdateGoal();
+  const isEdit = !!goal;
   const [name, setName] = useState('');
   const [targetAmount, setTargetAmount] = useState('');
   const [targetDate, setTargetDate] = useState('');
 
+  useEffect(() => {
+    if (!open) return;
+    if (goal) {
+      setName(goal.name);
+      setTargetAmount(String(goal.target_amount));
+      setTargetDate(goal.target_date || '');
+    } else {
+      setName(''); setTargetAmount(''); setTargetDate('');
+    }
+  }, [open, goal]);
+
   const save = async () => {
     if (!name || !targetAmount) { toast.error('Name and target amount are required'); return; }
     try {
-      await createGoal.mutateAsync({ name, target_amount: Number(targetAmount), target_date: targetDate || undefined });
-      toast.success('Goal created');
+      if (isEdit) {
+        await updateGoal.mutateAsync({ id: goal!.id, payload: { name, target_amount: Number(targetAmount), target_date: targetDate || null } });
+        toast.success('Goal updated');
+      } else {
+        await createGoal.mutateAsync({ name, target_amount: Number(targetAmount), target_date: targetDate || undefined });
+        toast.success('Goal created');
+      }
       onOpenChange(false);
-      setName(''); setTargetAmount(''); setTargetDate('');
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Something went wrong');
     }
@@ -136,7 +159,7 @@ function NewGoalDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (o
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent {...preventAccidentalDialogClose}>
-        <DialogHeader><DialogTitle>New goal</DialogTitle></DialogHeader>
+        <DialogHeader><DialogTitle>{isEdit ? 'Edit goal' : 'New goal'}</DialogTitle></DialogHeader>
         <div className="space-y-4">
           <div>
             <Label>Name</Label>
@@ -153,7 +176,7 @@ function NewGoalDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (o
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
-          <Button onClick={save}>Create</Button>
+          <Button onClick={save} disabled={createGoal.isPending || updateGoal.isPending}>{isEdit ? 'Save changes' : 'Create'}</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

@@ -1,5 +1,5 @@
 import { NavLink, Outlet } from 'react-router-dom';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   LayoutDashboard, Receipt, Wallet, PiggyBank, Target, Landmark, BarChart3, Settings as SettingsIcon,
   Menu, LogOut,
@@ -9,6 +9,8 @@ import { Button } from '@/components/ui/button';
 import { Sheet, SheetContent, SheetTrigger } from '@/components/ui/sheet';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { QuickAddButton } from '@/components/transactions/QuickAddButton';
+import { NotificationsBell } from '@/components/layout/NotificationsBell';
+import { useProcessDue } from '@/hooks/useMoneyData';
 import { cn } from '@/lib/utils';
 
 const NAV_ITEMS = [
@@ -50,15 +52,27 @@ export function AppShell() {
   const { user, signOut } = useAuth();
   const [mobileOpen, setMobileOpen] = useState(false);
   const initials = (user?.display_name || user?.username || '?').slice(0, 2).toUpperCase();
+  const processDue = useProcessDue();
+
+  // No cron on the VM - catch up any due auto_post subscriptions and settle
+  // credit-card autopay once per app load instead. Fire-and-forget; a
+  // failure here shouldn't block the UI from rendering.
+  useEffect(() => {
+    processDue.mutate();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   return (
     <div className="min-h-screen bg-background">
       <div className="mx-auto flex max-w-[1400px]">
         {/* Desktop sidebar */}
         <aside className="sticky top-0 hidden h-screen w-64 shrink-0 flex-col border-r border-border p-4 md:flex">
-          <div className="mb-6 flex items-center gap-2 px-2">
-            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary text-primary-foreground font-bold">₹</div>
-            <span className="text-lg font-semibold">MoneyOS</span>
+          <div className="mb-6 flex items-center justify-between px-2">
+            <div className="flex items-center gap-2">
+              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary text-primary-foreground font-bold">₹</div>
+              <span className="text-lg font-semibold">MoneyOS</span>
+            </div>
+            <NotificationsBell />
           </div>
           <NavLinks />
           <div className="mt-auto flex items-center gap-2 border-t border-border pt-4">
@@ -82,6 +96,8 @@ export function AppShell() {
               <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-primary text-primary-foreground text-sm font-bold">₹</div>
               <span className="font-semibold">MoneyOS</span>
             </div>
+            <div className="flex items-center gap-1">
+            <NotificationsBell />
             <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
               <SheetTrigger asChild>
                 <Button variant="ghost" size="icon"><Menu className="h-5 w-5" /></Button>
@@ -97,6 +113,7 @@ export function AppShell() {
                 </Button>
               </SheetContent>
             </Sheet>
+            </div>
           </header>
 
           <main className="flex-1 p-4 pb-24 md:p-8 md:pb-8">

@@ -1,7 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
-  accounts, categories, paymentMethods, transactions, loans, budgets, goals, bills, recurringRules, reports,
-  type CreateTransactionInput, type CreateLoanInput, type Account, type Category, type Budget, type Goal, type Bill, type RecurringRule,
+  accounts, categories, paymentMethods, transactions, loans, budgets, goals, bills, recurringRules, reports, processDue,
+  type CreateTransactionInput, type CreateLoanInput, type Account, type Category, type PaymentMethod, type Budget, type Goal, type Bill, type RecurringRule,
 } from '@/lib/api';
 
 // Invalidate both accounts (balances change) and transactions/reports after
@@ -27,6 +27,30 @@ export function useCategories(kind?: 'expense' | 'income') {
 
 export function usePaymentMethods() {
   return useQuery({ queryKey: ['payment_methods'], queryFn: paymentMethods.list });
+}
+
+export function useCreatePaymentMethod() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: Partial<PaymentMethod>) => paymentMethods.create(payload),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['payment_methods'] }),
+  });
+}
+
+export function useUpdatePaymentMethod() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, payload }: { id: string; payload: Partial<PaymentMethod> }) => paymentMethods.update(id, payload),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['payment_methods'] }),
+  });
+}
+
+export function useDeletePaymentMethod() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => paymentMethods.remove(id),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['payment_methods'] }),
+  });
 }
 
 export function useTransactions(params: Parameters<typeof transactions.list>[0] = {}) {
@@ -90,6 +114,22 @@ export function useCreateCategory() {
   });
 }
 
+export function useUpdateCategory() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, payload }: { id: string; payload: Partial<Category> }) => categories.update(id, payload),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['categories'] }),
+  });
+}
+
+export function useDeleteCategory() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => categories.remove(id),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['categories'] }),
+  });
+}
+
 export function useLoans() {
   return useQuery({ queryKey: ['loans'], queryFn: loans.list });
 }
@@ -107,6 +147,29 @@ export function useCreateLoan() {
   return useMutation({
     mutationFn: (payload: CreateLoanInput) => loans.create(payload),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['loans'] }),
+  });
+}
+
+export function useUpdateLoan() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, payload }: { id: string; payload: Partial<CreateLoanInput> }) => loans.update(id, payload),
+    onSuccess: (_data, vars) => {
+      qc.invalidateQueries({ queryKey: ['loans'] });
+      qc.invalidateQueries({ queryKey: ['loan-schedule', vars.id] });
+      qc.invalidateQueries({ queryKey: ['loan-payments-pending'] });
+    },
+  });
+}
+
+export function useDeleteLoan() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => loans.remove(id),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['loans'] });
+      qc.invalidateQueries({ queryKey: ['loan-payments-pending'] });
+    },
   });
 }
 
@@ -199,6 +262,14 @@ export function useUpdateBill() {
   });
 }
 
+export function useDeleteBill() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => bills.remove(id),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['bills'] }),
+  });
+}
+
 export function useRecurringRules() {
   return useQuery({ queryKey: ['recurring_rules'], queryFn: recurringRules.list });
 }
@@ -216,6 +287,43 @@ export function useUpdateRecurringRule() {
   return useMutation({
     mutationFn: ({ id, payload }: { id: string; payload: Partial<RecurringRule> }) => recurringRules.update(id, payload),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['recurring_rules'] }),
+  });
+}
+
+export function useDeleteRecurringRule() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => recurringRules.remove(id),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['recurring_rules'] }),
+  });
+}
+
+export function usePostRecurringRule() {
+  const invalidate = useMoneyMutationInvalidation();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => recurringRules.post(id),
+    onSuccess: () => {
+      invalidate();
+      qc.invalidateQueries({ queryKey: ['recurring_rules'] });
+    },
+  });
+}
+
+// Fires once per app load to catch up any due auto_post recurring rules and
+// settle credit-card autopay - see backend handleProcessDue (no cron on the
+// VM, so "on every visit" stands in for one).
+export function useProcessDue() {
+  const invalidate = useMoneyMutationInvalidation();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => processDue.run(),
+    onSuccess: (data) => {
+      if (data.posted_recurring.length > 0 || data.autopay_settled.length > 0) {
+        invalidate();
+        qc.invalidateQueries({ queryKey: ['recurring_rules'] });
+      }
+    },
   });
 }
 

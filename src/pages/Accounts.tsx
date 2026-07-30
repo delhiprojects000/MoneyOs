@@ -1,6 +1,8 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { Progress } from '@/components/ui/progress';
+import { Switch } from '@/components/ui/switch';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -8,7 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { useAccounts, useCreateAccount, useUpdateAccount, useTransferFunds } from '@/hooks/useMoneyData';
 import { useAuth } from '@/contexts/AuthContext';
 import { formatMoney } from '@/lib/format';
-import { Plus, Wallet, Landmark, CreditCard, Smartphone, PiggyBank, ArrowLeftRight, Archive } from 'lucide-react';
+import { Plus, Wallet, Landmark, CreditCard, Smartphone, PiggyBank, ArrowLeftRight, Archive, Zap } from 'lucide-react';
 import { toast } from 'sonner';
 import { preventAccidentalDialogClose } from '@/lib/utils';
 import { CardGridSkeleton } from '@/components/skeletons/primitives';
@@ -58,6 +60,9 @@ export default function Accounts() {
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {active.map((a) => {
             const Icon = TYPE_ICONS[a.type];
+            const isCredit = a.type === 'credit';
+            const owed = isCredit ? Math.max(0, -a.current_balance) : 0;
+            const utilizationPct = isCredit && a.credit_limit ? Math.min(100, Math.round((owed / a.credit_limit) * 100)) : 0;
             return (
               <Card key={a.id} className="hover-lift cursor-pointer" onClick={() => { setEditing(a); setDialogOpen(true); }}>
                 <CardContent className="p-5">
@@ -65,10 +70,27 @@ export default function Accounts() {
                     <div className="flex h-10 w-10 items-center justify-center rounded-lg" style={{ backgroundColor: `${a.color || '#16a34a'}20`, color: a.color || '#16a34a' }}>
                       <Icon className="h-5 w-5" />
                     </div>
-                    <span className="text-xs uppercase text-muted-foreground">{a.type}</span>
+                    <div className="flex items-center gap-1.5">
+                      {isCredit && a.autopay_enabled && <Zap className="h-3.5 w-3.5 text-warning" />}
+                      <span className="text-xs uppercase text-muted-foreground">{a.type}</span>
+                    </div>
                   </div>
                   <p className="text-sm text-muted-foreground">{a.name}</p>
-                  <p className="mt-1 text-xl font-semibold tabular-nums">{formatMoney(a.current_balance, a.currency)}</p>
+                  {isCredit ? (
+                    <>
+                      <p className={`mt-1 text-xl font-semibold tabular-nums ${owed > 0 ? 'text-destructive' : ''}`}>{formatMoney(owed, a.currency)} owed</p>
+                      {a.credit_limit ? (
+                        <>
+                          <Progress value={utilizationPct} className="mt-2 h-1.5" />
+                          <p className="mt-1 text-xs text-muted-foreground">{formatMoney(a.credit_limit - owed, a.currency)} available of {formatMoney(a.credit_limit, a.currency)}</p>
+                        </>
+                      ) : (
+                        <p className="mt-2 text-xs text-muted-foreground">No credit limit set</p>
+                      )}
+                    </>
+                  ) : (
+                    <p className="mt-1 text-xl font-semibold tabular-nums">{formatMoney(a.current_balance, a.currency)}</p>
+                  )}
                 </CardContent>
               </Card>
             );
@@ -86,19 +108,47 @@ export default function Accounts() {
 }
 
 function AccountDialog({ open, onOpenChange, account }: { open: boolean; onOpenChange: (o: boolean) => void; account?: Account }) {
+  const { data: allAccounts = [] } = useAccounts();
   const [name, setName] = useState(account?.name || '');
   const [type, setType] = useState<AccountType>(account?.type || 'bank');
   const [opening, setOpening] = useState(account ? String(account.opening_balance) : '0');
+  const [creditLimit, setCreditLimit] = useState('');
+  const [billingDay, setBillingDay] = useState('');
+  const [autopayEnabled, setAutopayEnabled] = useState(false);
+  const [autopayAccountId, setAutopayAccountId] = useState('');
   const createAccount = useCreateAccount();
   const updateAccount = useUpdateAccount();
 
+  useEffect(() => {
+    if (!open) return;
+    if (account) {
+      setName(account.name);
+      setType(account.type);
+      setOpening(String(account.opening_balance));
+      setCreditLimit(account.credit_limit != null ? String(account.credit_limit) : '');
+      setBillingDay(account.billing_day != null ? String(account.billing_day) : '');
+      setAutopayEnabled(account.autopay_enabled);
+      setAutopayAccountId(account.autopay_account_id || '');
+    } else {
+      setName(''); setType('bank'); setOpening('0');
+      setCreditLimit(''); setBillingDay(''); setAutopayEnabled(false); setAutopayAccountId('');
+    }
+  }, [open, account]);
+
   const save = async () => {
     if (!name) { toast.error('Name is required'); return; }
+    if (type === 'credit' && autopayEnabled && !autopayAccountId) { toast.error('Pick an account to autopay from'); return; }
+    const creditFields = type === 'credit' ? {
+      credit_limit: creditLimit ? Number(creditLimit) : null,
+      billing_day: billingDay ? Number(billingDay) : null,
+      autopay_enabled: autopayEnabled,
+      autopay_account_id: autopayEnabled ? autopayAccountId : null,
+    } : {};
     try {
       if (account) {
-        await updateAccount.mutateAsync({ id: account.id, payload: { name, type } });
+        await updateAccount.mutateAsync({ id: account.id, payload: { name, type, ...creditFields } });
       } else {
-        await createAccount.mutateAsync({ name, type, opening_balance: Number(opening), current_balance: Number(opening) });
+        await createAccount.mutateAsync({ name, type, opening_balance: Number(opening), current_balance: Number(opening), ...creditFields });
       }
       toast.success(account ? 'Account updated' : 'Account added');
       onOpenChange(false);
@@ -115,7 +165,7 @@ function AccountDialog({ open, onOpenChange, account }: { open: boolean; onOpenC
   };
 
   return (
-    <Dialog open={open} onOpenChange={(o) => { onOpenChange(o); if (o && !account) { setName(''); setType('bank'); setOpening('0'); } }}>
+    <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent {...preventAccidentalDialogClose}>
         <DialogHeader><DialogTitle>{account ? 'Edit account' : 'Add account'}</DialogTitle></DialogHeader>
         <div className="space-y-4">
@@ -136,6 +186,38 @@ function AccountDialog({ open, onOpenChange, account }: { open: boolean; onOpenC
             <div>
               <Label>Opening balance</Label>
               <Input type="number" value={opening} onChange={(e) => setOpening(e.target.value)} />
+            </div>
+          )}
+          {type === 'credit' && (
+            <div className="space-y-4 rounded-lg border border-border p-3">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <Label>Credit limit</Label>
+                  <Input type="number" value={creditLimit} onChange={(e) => setCreditLimit(e.target.value)} placeholder="100000" />
+                </div>
+                <div>
+                  <Label>Bill due day</Label>
+                  <Input type="number" min={1} max={28} value={billingDay} onChange={(e) => setBillingDay(e.target.value)} placeholder="1-28" />
+                </div>
+              </div>
+              <div className="flex items-center justify-between">
+                <div>
+                  <Label htmlFor="card-autopay-toggle">Autopay the bill</Label>
+                  <p className="text-xs text-muted-foreground">Settles the full balance from another account on the due day.</p>
+                </div>
+                <Switch id="card-autopay-toggle" checked={autopayEnabled} onCheckedChange={setAutopayEnabled} />
+              </div>
+              {autopayEnabled && (
+                <div>
+                  <Label>Pay from</Label>
+                  <Select value={autopayAccountId} onValueChange={setAutopayAccountId}>
+                    <SelectTrigger><SelectValue placeholder="Select account" /></SelectTrigger>
+                    <SelectContent>
+                      {allAccounts.filter((a) => a.id !== account?.id && a.type !== 'credit').map((a) => <SelectItem key={a.id} value={a.id}>{a.name}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
             </div>
           )}
         </div>

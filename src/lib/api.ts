@@ -64,6 +64,15 @@ export interface Account {
   icon: string | null;
   is_archived: boolean;
   sort_order: number;
+  // Credit card terms - only meaningful when type === 'credit'. Spending on
+  // a credit account drives current_balance negative through the normal
+  // expense flow (see backend applyBalanceEffect) - these fields just
+  // describe the card's own limit/due-day/autopay behavior on top of that.
+  credit_limit: number | null;
+  billing_day: number | null;
+  autopay_enabled: boolean;
+  autopay_account_id: string | null;
+  autopay_last_run: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -132,6 +141,7 @@ export interface RecurringRule {
   auto_post: boolean;
   is_active: boolean;
   notes: string | null;
+  last_run_date: string | null;
 }
 
 export interface Loan {
@@ -256,6 +266,8 @@ export const categories = {
 export const paymentMethods = {
   list: () => dataSelect<PaymentMethod>('payment_methods', { order: 'sort_order.asc' }),
   create: (payload: Partial<PaymentMethod>) => dataInsert<PaymentMethod>('payment_methods', payload),
+  update: (id: string, payload: Partial<PaymentMethod>) => dataUpdate<PaymentMethod>('payment_methods', id, payload),
+  remove: (id: string) => dataDelete('payment_methods', id),
 };
 
 export const accounts = {
@@ -272,6 +284,16 @@ export const recurringRules = {
   create: (payload: Partial<RecurringRule>) => dataInsert<RecurringRule>('recurring_rules', payload),
   update: (id: string, payload: Partial<RecurringRule>) => dataUpdate<RecurringRule>('recurring_rules', id, payload),
   remove: (id: string) => dataDelete('recurring_rules', id),
+  // Manual "mark this cycle paid" - posts a transaction for the rule's
+  // current next_run_date and advances the schedule by one interval.
+  post: (id: string): Promise<{ data: RecurringRule; transaction: Transaction }> => jsonCall(`/recurring_rules/${id}/post`, 'POST'),
+};
+
+// Catch-up pass for auto_post recurring rules and credit-card autopay -
+// there's no cron on the box, so this is called once per session on app
+// load instead (see useProcessDue in useMoneyData.ts).
+export const processDue = {
+  run: (): Promise<{ posted_recurring: Transaction[]; autopay_settled: Transaction[] }> => jsonCall('/process-due', 'POST'),
 };
 
 export const budgets = {
@@ -344,6 +366,10 @@ export interface CreateLoanInput {
 export const loans = {
   list: () => dataSelect<Loan>('loans'),
   create: (payload: CreateLoanInput): Promise<{ data: Loan; schedule: LoanPayment[] }> => jsonCall('/loans', 'POST', payload),
+  // Dedicated route, not the generic /data gateway - changing
+  // principal/rate/tenure/EMI/start_date needs the unpaid tail of the
+  // amortization schedule regenerated server-side (see backend handleUpdateLoan).
+  update: (id: string, payload: Partial<CreateLoanInput>): Promise<{ data: Loan; schedule?: LoanPayment[] }> => jsonCall(`/loans/${id}`, 'PATCH', payload),
   remove: (id: string) => dataDelete('loans', id),
   schedule: (loanId: string): Promise<LoanPayment[]> => call(`/loans/${loanId}/schedule`).then((r) => r.data),
   payInstallment: (loanId: string, paymentId: string): Promise<{ data: LoanPayment; transaction: Transaction }> =>

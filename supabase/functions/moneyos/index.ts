@@ -216,6 +216,9 @@ async function handleUpdateMe(req: Request, user: AuthedUser): Promise<Response>
 // balance math / schedule linkage - see dedicated routes below).
 
 const DATA_TABLES = new Set(["categories", "payment_methods", "accounts", "recurring_rules", "loans", "budgets", "goals", "bills", "attachments"]);
+// System-seeded rows (user_id null) are shared defaults - a user can see
+// them but never rename/delete the global "Food"/"Google Pay"/etc entries.
+const SYSTEM_PROTECTED_TABLES = new Set(["categories", "payment_methods"]);
 
 async function handleData(req: Request, user: AuthedUser): Promise<Response> {
   const body = await req.json().catch(() => ({}));
@@ -223,8 +226,18 @@ async function handleData(req: Request, user: AuthedUser): Promise<Response> {
 
   if (table === "transactions" || table === "loan_payments") {
     if (operation !== "select") return json({ error: `Writes to ${table} must go through its dedicated endpoint` }, 400);
+  } else if (table === "loans" && operation === "update") {
+    return json({ error: "Loan edits must go through PATCH /loans/:id (schedule regeneration)" }, 400);
   } else if (!DATA_TABLES.has(table)) {
     return json({ error: "Table not allowed" }, 400);
+  }
+
+  if (SYSTEM_PROTECTED_TABLES.has(table) && (operation === "update" || operation === "delete")) {
+    if (!id) return json({ error: "Missing id" }, 400);
+    const rows = await pg(`/${table}${qs({ id: `eq.${id}`, select: "is_system,user_id" })}`);
+    const row = Array.isArray(rows) ? rows[0] : null;
+    if (!row) return json({ error: "Not found" }, 404);
+    if (row.is_system || row.user_id === null) return json({ error: "System defaults can't be edited or deleted" }, 403);
   }
 
   if (operation === "select") {
@@ -435,6 +448,55 @@ async function handleCreateLoan(req: Request, user: AuthedUser): Promise<Respons
   return json({ data: loan, schedule });
 }
 
+// Editing a loan can mean two very different things: fixing metadata
+// (name/lender/notes - no schedule impact) or fixing the numbers themselves
+// (wrong tenure/EMI/rate/principal/start date). For the latter, regenerate
+// only the *unpaid* tail of the schedule so already-paid installments stay
+// exactly as they were (their transactions already happened) - the new
+// tenure/EMI/rate applies from the next unpaid installment onward, based on
+// whatever principal remains after paid installments.
+const SCHEDULE_AFFECTING_FIELDS = ["principal_amount", "interest_rate", "tenure_months", "emi_amount", "start_date"];
+
+async function handleUpdateLoan(req: Request, loanId: string, user: AuthedUser): Promise<Response> {
+  const patch = await req.json().catch(() => ({}));
+
+  const loanRows = await pg(`/loans${qs({ id: `eq.${loanId}`, user_id: `eq.${user.sub}` })}`);
+  const existing = Array.isArray(loanRows) ? loanRows[0] : null;
+  if (!existing) return json({ error: "Not found" }, 404);
+
+  const scheduleAffected = SCHEDULE_AFFECTING_FIELDS.some((f) => f in patch && String(patch[f]) !== String(existing[f]));
+
+  const merged = { ...existing, ...patch, updated_at: new Date().toISOString() };
+  delete merged.id;
+  delete merged.created_at;
+  const updated = await pg(`/loans${qs({ id: `eq.${loanId}` })}`, { method: "PATCH", single: true, body: JSON.stringify(merged) });
+
+  let schedule: unknown = undefined;
+  if (scheduleAffected) {
+    const allPayments = await pg(`/loan_payments${qs({ loan_id: `eq.${loanId}`, select: "*", order: "installment_number.asc" })}`);
+    const paid = (allPayments as Array<{ status: string; installment_number: number; due_date: string; remaining_balance: string }>).filter((p) => p.status === "paid");
+    const lastPaid = paid[paid.length - 1];
+
+    const remainingPrincipal = lastPaid ? Number(lastPaid.remaining_balance) : Number(updated.principal_amount);
+    const remainingTenure = Number(updated.tenure_months) - paid.length;
+    const scheduleStartDate = lastPaid ? lastPaid.due_date : updated.start_date;
+
+    if (remainingTenure <= 0) return json({ error: "New tenure must leave at least one installment after what's already paid" }, 400);
+
+    // Delete only unpaid installments before regenerating - paid ones are untouched.
+    await pg(`/loan_payments${qs({ loan_id: `eq.${loanId}`, status: `neq.paid` })}`, { method: "DELETE" });
+
+    const regenerated = generateAmortizationSchedule(remainingPrincipal, Number(updated.interest_rate), remainingTenure, Number(updated.emi_amount), scheduleStartDate);
+    const rows = regenerated.map((s) => ({ ...s, installment_number: s.installment_number + paid.length, loan_id: loanId, user_id: user.sub }));
+    schedule = await pg(`/loan_payments`, { method: "POST", body: JSON.stringify(rows) });
+
+    // Reopen a loan whose tenure was extended past what was previously closed.
+    if (updated.status === "closed") await pg(`/loans${qs({ id: `eq.${loanId}` })}`, { method: "PATCH", body: JSON.stringify({ status: "active" }) });
+  }
+
+  return json({ data: updated, ...(schedule ? { schedule } : {}) });
+}
+
 async function handleLoanSchedule(loanId: string, user: AuthedUser): Promise<Response> {
   const data = await pg(`/loan_payments${qs({ loan_id: `eq.${loanId}`, user_id: `eq.${user.sub}`, select: "*", order: "installment_number.asc" })}`);
   return json({ data });
@@ -472,6 +534,118 @@ async function handlePayLoanInstallment(req: Request, loanId: string, paymentId:
   }
 
   return json({ data: updatedPayment, transaction: tx });
+}
+
+// --- Recurring rules: post a cycle + auto-process due ones ------------------
+
+function advanceDate(dateStr: string, frequency: string, intervalCount: number): string {
+  const d = new Date(`${dateStr}T00:00:00Z`);
+  if (frequency === "daily") d.setUTCDate(d.getUTCDate() + intervalCount);
+  else if (frequency === "weekly") d.setUTCDate(d.getUTCDate() + 7 * intervalCount);
+  else if (frequency === "yearly") d.setUTCFullYear(d.getUTCFullYear() + intervalCount);
+  else d.setUTCMonth(d.getUTCMonth() + intervalCount); // monthly (default)
+  return d.toISOString().slice(0, 10);
+}
+
+interface RecurringRuleRow {
+  id: string; account_id: string; category_id: string | null; payment_method_id: string | null;
+  type: "expense" | "income" | "transfer"; amount: string; currency: string; name: string;
+  frequency: string; interval_count: number; next_run_date: string; end_date: string | null;
+}
+
+async function postRecurringCycle(rule: RecurringRuleRow, user: AuthedUser, occurredAt: string) {
+  const tx = await pg(`/transactions`, {
+    method: "POST", single: true,
+    body: JSON.stringify({
+      user_id: user.sub, account_id: rule.account_id, category_id: rule.category_id,
+      payment_method_id: rule.payment_method_id, type: rule.type, amount: rule.amount,
+      currency: rule.currency, description: rule.name, occurred_at: occurredAt,
+      recurring_rule_id: rule.id,
+    }),
+  });
+  await applyBalanceEffect(tx as TxRow, 1);
+  return tx;
+}
+
+// Manual "mark this cycle paid" for a subscription/recurring expense that
+// isn't flagged auto_post - posts one transaction for the *current* cycle
+// (whatever next_run_date currently is, even if the user is doing this
+// early or a bit late) and advances the schedule by one interval.
+async function handlePostRecurringRule(ruleId: string, user: AuthedUser): Promise<Response> {
+  const rows = await pg(`/recurring_rules${qs({ id: `eq.${ruleId}`, user_id: `eq.${user.sub}` })}`);
+  const rule = Array.isArray(rows) ? (rows[0] as RecurringRuleRow) : null;
+  if (!rule) return json({ error: "Not found" }, 404);
+
+  const tx = await postRecurringCycle(rule, user, new Date().toISOString());
+  const nextRunDate = advanceDate(rule.next_run_date, rule.frequency, rule.interval_count);
+  const updatedRule = await pg(`/recurring_rules${qs({ id: `eq.${ruleId}` })}`, {
+    method: "PATCH", single: true,
+    body: JSON.stringify({ next_run_date: nextRunDate, last_run_date: new Date().toISOString().slice(0, 10) }),
+  });
+
+  return json({ data: updatedRule, transaction: tx });
+}
+
+interface CreditAccountRow {
+  id: string; name: string; current_balance: string; autopay_account_id: string | null;
+  billing_day: number | null; autopay_last_run: string | null;
+}
+
+// Called once per session on app load (no cron on this box) - catches up
+// any auto_post recurring rules whose next_run_date has arrived, and
+// settles autopay-enabled credit card balances once their billing_day has
+// passed for the current month. Capped iteration per rule guards against a
+// rule that's been inactive/unvisited for a very long time generating an
+// unbounded backlog of transactions in one pass.
+async function handleProcessDue(user: AuthedUser): Promise<Response> {
+  const today = new Date().toISOString().slice(0, 10);
+  const postedRecurring: unknown[] = [];
+
+  const dueRules = await pg(`/recurring_rules${qs({ user_id: `eq.${user.sub}`, is_active: "eq.true", auto_post: "eq.true", next_run_date: `lte.${today}`, select: "*" })}`);
+  for (const initial of (dueRules as RecurringRuleRow[])) {
+    let current = initial;
+    let iterations = 0;
+    while (current.next_run_date <= today && iterations < 24) {
+      const tx = await postRecurringCycle(current, user, `${current.next_run_date}T00:00:00.000Z`);
+      postedRecurring.push(tx);
+
+      const nextRunDate = advanceDate(current.next_run_date, current.frequency, current.interval_count);
+      current = await pg(`/recurring_rules${qs({ id: `eq.${current.id}` })}`, {
+        method: "PATCH", single: true,
+        body: JSON.stringify({ next_run_date: nextRunDate, last_run_date: today }),
+      }) as RecurringRuleRow;
+      iterations++;
+
+      if (current.end_date && current.end_date < current.next_run_date) {
+        await pg(`/recurring_rules${qs({ id: `eq.${current.id}` })}`, { method: "PATCH", body: JSON.stringify({ is_active: false }) });
+        break;
+      }
+    }
+  }
+
+  const autopaySettled: unknown[] = [];
+  const dayOfMonth = new Date().getDate();
+  const creditAccounts = await pg(`/accounts${qs({ user_id: `eq.${user.sub}`, type: "eq.credit", autopay_enabled: "eq.true", is_archived: "eq.false", select: "*" })}`);
+  for (const card of (creditAccounts as CreditAccountRow[])) {
+    if (!card.autopay_account_id || !card.billing_day) continue;
+    const owed = -Number(card.current_balance);
+    if (owed <= 0) continue; // nothing owed, or card is in credit
+    if (dayOfMonth < card.billing_day) continue; // not due yet this cycle
+    if (card.autopay_last_run && card.autopay_last_run.slice(0, 7) === today.slice(0, 7)) continue; // already settled this month
+
+    const tx = await pg(`/transactions`, {
+      method: "POST", single: true,
+      body: JSON.stringify({
+        user_id: user.sub, account_id: card.autopay_account_id, transfer_to_account_id: card.id,
+        type: "transfer", amount: owed, description: `Autopay - ${card.name} bill`, occurred_at: new Date().toISOString(),
+      }),
+    });
+    await applyBalanceEffect(tx as TxRow, 1);
+    await pg(`/accounts${qs({ id: `eq.${card.id}` })}`, { method: "PATCH", body: JSON.stringify({ autopay_last_run: today }) });
+    autopaySettled.push(tx);
+  }
+
+  return json({ posted_recurring: postedRecurring, autopay_settled: autopaySettled });
 }
 
 // --- Reports ---------------------------------------------------------------
@@ -590,10 +764,17 @@ export async function moneyosRouter(req: Request, path: string): Promise<Respons
     if (req.method === "POST" && path === "/accounts/transfer") return await handleTransfer(req, user);
 
     if (req.method === "POST" && path === "/loans") return await handleCreateLoan(req, user);
+    const loanMatch = path.match(/^\/loans\/([^/]+)$/);
+    if (req.method === "PATCH" && loanMatch) return await handleUpdateLoan(req, loanMatch[1], user);
     const scheduleMatch = path.match(/^\/loans\/([^/]+)\/schedule$/);
     if (req.method === "GET" && scheduleMatch) return await handleLoanSchedule(scheduleMatch[1], user);
     const payMatch = path.match(/^\/loans\/([^/]+)\/payments\/([^/]+)\/pay$/);
     if (req.method === "POST" && payMatch) return await handlePayLoanInstallment(req, payMatch[1], payMatch[2], user);
+
+    const recurringPostMatch = path.match(/^\/recurring_rules\/([^/]+)\/post$/);
+    if (req.method === "POST" && recurringPostMatch) return await handlePostRecurringRule(recurringPostMatch[1], user);
+
+    if (req.method === "POST" && path === "/process-due") return await handleProcessDue(user);
 
     if (req.method === "GET" && path === "/reports/summary") return await handleReportsSummary(req, user);
 
