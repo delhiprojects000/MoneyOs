@@ -125,7 +125,7 @@ export default function TransactionsPage() {
                     <span className={`shrink-0 tabular-nums font-medium ${t.type === 'income' ? 'text-success' : t.type === 'expense' ? 'text-destructive' : ''}`}>
                       {t.type === 'income' ? '+' : t.type === 'expense' ? '-' : ''}{formatMoney(t.amount, currency)}
                     </span>
-                    <div className="flex shrink-0 gap-1 opacity-0 transition-opacity group-hover:opacity-100">
+                    <div className="flex shrink-0 gap-1 opacity-100 transition-opacity md:opacity-0 md:group-hover:opacity-100">
                       <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => { setEditingTx(t); setDialogOpen(true); }}>
                         <Pencil className="h-3.5 w-3.5" />
                       </Button>

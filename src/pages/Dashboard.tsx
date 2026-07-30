@@ -2,14 +2,21 @@ import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { useAccounts, useTransactions, useReportsSummary, useLoans, usePendingLoanPayments, useBills } from '@/hooks/useMoneyData';
+import { useAccounts, useTransactions, useReportsSummary, useLoans, usePendingLoanPayments, useBills, useRecurringRules } from '@/hooks/useMoneyData';
 import { useAuth } from '@/contexts/AuthContext';
 import { formatMoney, formatRelativeDay } from '@/lib/format';
-import { ArrowDownRight, ArrowUpRight, Wallet, TrendingUp, TrendingDown, AlertCircle } from 'lucide-react';
+import { ArrowDownRight, ArrowUpRight, Wallet, TrendingUp, TrendingDown, AlertCircle, Landmark, Repeat, CreditCard } from 'lucide-react';
 import { TransactionDialog } from '@/components/transactions/TransactionDialog';
 import { DashboardSkeleton } from '@/components/skeletons/pages';
 import { AreaChart, Area, ResponsiveContainer, Tooltip, XAxis } from 'recharts';
 import type { Transaction } from '@/lib/api';
+import { buildUpcomingItems, daysUntil, type UpcomingKind } from '@/lib/upcoming';
+
+const UPCOMING_WINDOW_DAYS = 15;
+
+const KIND_ICON: Record<UpcomingKind, typeof Wallet> = {
+  loan: Landmark, bill: AlertCircle, recurring: Repeat, credit_card: CreditCard,
+};
 
 function greeting() {
   const h = new Date().getHours();
@@ -26,34 +33,24 @@ export default function Dashboard() {
   const { data: loans = [] } = useLoans();
   const { data: pendingPayments = [] } = usePendingLoanPayments();
   const { data: bills = [] } = useBills();
+  const { data: rules = [] } = useRecurringRules();
   const [editingTx, setEditingTx] = useState<Transaction | undefined>(undefined);
 
-  const totalBalance = accounts.reduce((s, a) => s + a.current_balance, 0);
+  // Credit card current_balance is negative when owed - summing it into
+  // "Total balance" would silently subtract card spend from your spendable
+  // cash the moment you swipe it, before any bill is actually due. Card debt
+  // still belongs in Net worth (computed server-side, unaffected by this),
+  // and shows up here as its own upcoming due below instead.
+  const totalBalance = accounts.filter((a) => a.type !== 'credit').reduce((s, a) => s + a.current_balance, 0);
   const currency = user?.default_currency || 'INR';
 
-  // Merge loan installments and standalone bills into one list sorted by
-  // actual due date - previously loans always rendered before bills
-  // regardless of which was due sooner.
+  // Every source of "money about to move" - loan/EMI installments, standalone
+  // bill reminders, subscriptions/recurring payments, and credit card bills -
+  // merged into one list and windowed to the next 15 days.
   const upcomingDues = useMemo(() => {
-    const loanNameById = Object.fromEntries(loans.map((l) => [l.id, l.name]));
-    const nextPaymentPerLoan = new Map<string, (typeof pendingPayments)[number]>();
-    for (const p of pendingPayments) if (!nextPaymentPerLoan.has(p.loan_id)) nextPaymentPerLoan.set(p.loan_id, p);
-
-    const loanDues = [...nextPaymentPerLoan.values()].map((p) => ({
-      key: `loan-${p.id}`,
-      label: `${loanNameById[p.loan_id] ?? 'Loan'} - EMI ${p.installment_number}`,
-      amount: p.principal_component + p.interest_component,
-      due_date: p.due_date,
-    }));
-    const billDues = bills.filter((b) => !b.is_paid).map((b) => ({
-      key: `bill-${b.id}`,
-      label: b.name,
-      amount: b.amount,
-      due_date: b.due_date,
-    }));
-
-    return [...loanDues, ...billDues].sort((a, b) => a.due_date.localeCompare(b.due_date)).slice(0, 4);
-  }, [loans, pendingPayments, bills]);
+    const items = buildUpcomingItems({ accounts, bills, loans, pendingPayments, rules });
+    return items.filter((i) => daysUntil(i.dueDate) <= UPCOMING_WINDOW_DAYS);
+  }, [accounts, bills, loans, pendingPayments, rules]);
 
   if (accountsLoading || summaryLoading) return <DashboardSkeleton />;
 
@@ -112,22 +109,26 @@ export default function Dashboard() {
         <Card>
           <CardHeader>
             <CardTitle className="text-base">Upcoming dues</CardTitle>
+            <p className="text-xs text-muted-foreground">Next {UPCOMING_WINDOW_DAYS} days - EMIs, bills, subscriptions, and credit card dues</p>
           </CardHeader>
-          <CardContent className="space-y-3">
-            {upcomingDues.map((d) => (
-              <div key={d.key} className="flex items-center justify-between text-sm">
-                <div className="flex items-center gap-2">
-                  <AlertCircle className="h-4 w-4 text-warning" />
-                  <span>{d.label}</span>
-                </div>
-                <div className="text-right">
-                  <p className="font-medium tabular-nums">{formatMoney(d.amount, currency)}</p>
-                  <p className="text-xs text-muted-foreground">{formatRelativeDay(d.due_date)}</p>
-                </div>
-              </div>
-            ))}
+          <CardContent className="max-h-72 space-y-1 overflow-y-auto">
+            {upcomingDues.map((d) => {
+              const Icon = KIND_ICON[d.kind];
+              return (
+                <Link key={d.key} to={d.href} className="flex items-center justify-between gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-muted">
+                  <div className="flex min-w-0 items-center gap-2">
+                    <Icon className={`h-4 w-4 shrink-0 ${d.overdue ? 'text-destructive' : 'text-warning'}`} />
+                    <span className="truncate">{d.label}</span>
+                  </div>
+                  <div className="shrink-0 text-right">
+                    <p className="font-medium tabular-nums">{formatMoney(d.amount, currency)}</p>
+                    <p className={`text-xs ${d.overdue ? 'text-destructive' : 'text-muted-foreground'}`}>{formatRelativeDay(d.dueDate)}</p>
+                  </div>
+                </Link>
+              );
+            })}
             {upcomingDues.length === 0 && (
-              <p className="text-sm text-muted-foreground">Nothing due - you're all caught up.</p>
+              <p className="px-2 py-4 text-sm text-muted-foreground">Nothing due in the next {UPCOMING_WINDOW_DAYS} days - you're all caught up.</p>
             )}
           </CardContent>
         </Card>

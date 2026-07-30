@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react';
-import { Card, CardContent } from '@/components/ui/card';
+import { useEffect, useMemo, useState } from 'react';
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
@@ -10,24 +10,64 @@ import {
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { useLoans, useLoanSchedule, useCreateLoan, useUpdateLoan, useDeleteLoan, usePayLoanInstallment, useAccounts } from '@/hooks/useMoneyData';
+import { Switch } from '@/components/ui/switch';
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
+import {
+  useLoans, useLoanSchedule, useCreateLoan, useUpdateLoan, useDeleteLoan, usePayLoanInstallment, useAccounts, usePendingLoanPayments,
+  useCategories, useRecurringRules, useCreateRecurringRule, useUpdateRecurringRule, useDeleteRecurringRule, usePostRecurringRule,
+  useBills, useCreateBill, useUpdateBill, useDeleteBill,
+} from '@/hooks/useMoneyData';
 import { useAuth } from '@/contexts/AuthContext';
-import { formatMoney, formatDate } from '@/lib/format';
-import { Plus, Landmark, CheckCircle2, Pencil, Trash2 } from 'lucide-react';
+import { formatMoney, formatDate, formatRelativeDay } from '@/lib/format';
+import { Plus, Landmark, CheckCircle2, Pencil, Trash2, Repeat, Zap } from 'lucide-react';
 import { toast } from 'sonner';
-import { preventAccidentalDialogClose } from '@/lib/utils';
+import { preventAccidentalDialogClose, cn } from '@/lib/utils';
 import { LoansSkeleton } from '@/components/skeletons/pages';
-import type { Loan } from '@/lib/api';
+import type { Loan, RecurringFrequency, RecurringRule, Bill } from '@/lib/api';
 
 export default function Loans() {
+  return (
+    <div className="space-y-6">
+      <div>
+        <h1 className="text-2xl font-semibold">EMIs &amp; Bills</h1>
+        <p className="text-muted-foreground">Loans, subscriptions, and bill reminders - all your recurring obligations in one place.</p>
+      </div>
+
+      <Tabs defaultValue="loans">
+        <TabsList>
+          <TabsTrigger value="loans">EMIs &amp; Loans</TabsTrigger>
+          <TabsTrigger value="recurring">Subscriptions</TabsTrigger>
+          <TabsTrigger value="bills">Bill reminders</TabsTrigger>
+        </TabsList>
+        <TabsContent value="loans" className="mt-4"><LoansTab /></TabsContent>
+        <TabsContent value="recurring" className="mt-4"><RecurringTab /></TabsContent>
+        <TabsContent value="bills" className="mt-4"><BillsTab /></TabsContent>
+      </Tabs>
+    </div>
+  );
+}
+
+// --- EMIs & Loans ------------------------------------------------------
+
+function LoansTab() {
   const { user } = useAuth();
   const currency = user?.default_currency || 'INR';
   const { data: loans = [], isLoading } = useLoans();
+  const { data: pendingPayments = [] } = usePendingLoanPayments();
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<Loan | undefined>(undefined);
   const [deleting, setDeleting] = useState<Loan | undefined>(undefined);
   const [expanded, setExpanded] = useState<string | undefined>(undefined);
   const deleteLoan = useDeleteLoan();
+
+  // Earliest pending installment per loan, shown right on the collapsed card
+  // so a schedule change (e.g. editing the start date) is visible at a
+  // glance without expanding into the full installment list.
+  const nextDueByLoan = useMemo(() => {
+    const map = new Map<string, (typeof pendingPayments)[number]>();
+    for (const p of pendingPayments) if (!map.has(p.loan_id)) map.set(p.loan_id, p);
+    return map;
+  }, [pendingPayments]);
 
   const confirmDelete = async () => {
     if (!deleting) return;
@@ -41,18 +81,16 @@ export default function Loans() {
   };
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-semibold">EMIs &amp; Loans</h1>
-          <p className="text-muted-foreground">Track every installment until it's paid off.</p>
-        </div>
+    <div className="space-y-4">
+      <div className="flex justify-end">
         <Button onClick={() => { setEditing(undefined); setOpen(true); }}><Plus className="mr-2 h-4 w-4" />Add loan</Button>
       </div>
 
       {isLoading ? <LoansSkeleton /> : (
       <div className="space-y-4">
-        {loans.map((l) => (
+        {loans.map((l) => {
+          const nextDue = nextDueByLoan.get(l.id);
+          return (
           <Card key={l.id}>
             <CardContent className="p-5">
               <div className="flex w-full items-center justify-between">
@@ -61,6 +99,13 @@ export default function Loans() {
                   <div>
                     <p className="font-medium">{l.name}</p>
                     <p className="text-xs text-muted-foreground">{l.lender_name} · {formatMoney(l.emi_amount, currency)}/month</p>
+                    {nextDue ? (
+                      <p className="mt-0.5 text-xs">
+                        Next due <span className="font-medium">{formatRelativeDay(nextDue.due_date)}</span> · {formatMoney(nextDue.principal_component + nextDue.interest_component, currency)}
+                      </p>
+                    ) : l.status === 'active' ? (
+                      <p className="mt-0.5 text-xs text-muted-foreground">No pending installments</p>
+                    ) : null}
                   </div>
                 </button>
                 <div className="flex items-center gap-1">
@@ -76,7 +121,8 @@ export default function Loans() {
               {expanded === l.id && <LoanSchedule loanId={l.id} currency={currency} />}
             </CardContent>
           </Card>
-        ))}
+          );
+        })}
         {loans.length === 0 && <p className="text-sm text-muted-foreground">No loans tracked yet.</p>}
       </div>
       )}
@@ -141,9 +187,11 @@ function LoanSchedule({ loanId, currency }: { loanId: string; currency: string }
 
 function NewLoanDialog({ open, onOpenChange, loan }: { open: boolean; onOpenChange: (o: boolean) => void; loan?: Loan }) {
   const { data: accounts = [] } = useAccounts();
+  const { data: schedule = [] } = useLoanSchedule(loan?.id);
   const createLoan = useCreateLoan();
   const updateLoan = useUpdateLoan();
   const isEdit = !!loan;
+  const hasPaidInstallments = isEdit && schedule.some((p) => p.status === 'paid');
   const [name, setName] = useState('');
   const [lender, setLender] = useState('');
   const [principal, setPrincipal] = useState('');
@@ -206,7 +254,7 @@ function NewLoanDialog({ open, onOpenChange, loan }: { open: boolean; onOpenChan
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-h-[90vh] overflow-y-auto" {...preventAccidentalDialogClose}>
         <DialogHeader><DialogTitle>{isEdit ? 'Edit loan / EMI' : 'Add a loan / EMI'}</DialogTitle></DialogHeader>
-        {isEdit && <p className="text-xs text-muted-foreground">Changing the amount, rate, tenure, EMI, or start date recalculates every installment that isn't paid yet - already-paid ones are untouched.</p>}
+        {isEdit && <p className="text-xs text-muted-foreground">Changing the amount, rate, tenure, or EMI recalculates every installment that isn't paid yet - already-paid ones are untouched.</p>}
         <div className="grid grid-cols-2 gap-3">
           <div className="col-span-2">
             <Label>Loan name</Label>
@@ -230,7 +278,8 @@ function NewLoanDialog({ open, onOpenChange, loan }: { open: boolean; onOpenChan
           </div>
           <div>
             <Label>Start date</Label>
-            <Input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
+            <Input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} disabled={hasPaidInstallments} />
+            {hasPaidInstallments && <p className="mt-1 text-xs text-muted-foreground">Locked - the schedule already continues from your last paid installment, so this can't move anymore.</p>}
           </div>
           <div className="col-span-2 flex items-end gap-2">
             <div className="flex-1">
@@ -253,5 +302,331 @@ function NewLoanDialog({ open, onOpenChange, loan }: { open: boolean; onOpenChan
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  );
+}
+
+// --- Subscriptions & recurring ------------------------------------------
+
+function RecurringTab() {
+  const { user } = useAuth();
+  const currency = user?.default_currency || 'INR';
+  const { data: rules = [] } = useRecurringRules();
+  const updateRule = useUpdateRecurringRule();
+  const deleteRule = useDeleteRecurringRule();
+  const postRule = usePostRecurringRule();
+  const [open, setOpen] = useState(false);
+  const [editing, setEditing] = useState<RecurringRule | undefined>(undefined);
+  const [deleting, setDeleting] = useState<RecurringRule | undefined>(undefined);
+
+  const monthlyTotal = rules
+    .filter((r) => r.is_active)
+    .reduce((sum, r) => sum + (r.frequency === 'monthly' ? r.amount : r.frequency === 'yearly' ? r.amount / 12 : r.frequency === 'weekly' ? r.amount * 4.33 : r.amount * 30), 0);
+
+  const toggleActive = async (id: string, isActive: boolean) => {
+    try {
+      await updateRule.mutateAsync({ id, payload: { is_active: !isActive } });
+      toast.success(isActive ? 'Paused' : 'Resumed');
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Something went wrong');
+    }
+  };
+
+  const markPaid = async (id: string) => {
+    try {
+      await postRule.mutateAsync(id);
+      toast.success('Posted to transactions - next cycle scheduled');
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Something went wrong');
+    }
+  };
+
+  const confirmDelete = async () => {
+    if (!deleting) return;
+    try {
+      await deleteRule.mutateAsync(deleting.id);
+      toast.success('Subscription removed');
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Something went wrong');
+    }
+    setDeleting(undefined);
+  };
+
+  return (
+    <Card>
+      <CardHeader className="flex flex-row items-start justify-between space-y-0">
+        <div>
+          <CardTitle className="text-base">Subscriptions &amp; recurring</CardTitle>
+          <CardDescription>
+            Track recurring bills and subscriptions. {monthlyTotal > 0 && <>~{formatMoney(monthlyTotal, currency)}/month across {rules.filter((r) => r.is_active).length} active.</>}
+          </CardDescription>
+        </div>
+        <Button size="sm" onClick={() => { setEditing(undefined); setOpen(true); }}><Plus className="mr-2 h-4 w-4" />Add</Button>
+      </CardHeader>
+      <CardContent className="space-y-1">
+        {rules.map((r) => (
+          <div key={r.id} className="flex items-center justify-between gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-muted">
+            <div className={cn('flex min-w-0 items-center gap-2', !r.is_active && 'text-muted-foreground line-through')}>
+              <Repeat className="h-3.5 w-3.5 shrink-0" />
+              <span className="truncate">{r.name} - {formatMoney(r.amount, currency)}/{r.frequency}</span>
+              {r.auto_post && <Badge variant="secondary" className="shrink-0 gap-1"><Zap className="h-2.5 w-2.5" />Autopay</Badge>}
+            </div>
+            <div className="flex shrink-0 items-center gap-1">
+              {r.is_active && !r.auto_post && (
+                <Button size="sm" variant="outline" onClick={() => markPaid(r.id)} disabled={postRule.isPending}>Mark paid</Button>
+              )}
+              <Button size="sm" variant="outline" onClick={() => toggleActive(r.id, r.is_active)}>{r.is_active ? 'Pause' : 'Resume'}</Button>
+              <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground" onClick={() => { setEditing(r); setOpen(true); }}>
+                <Pencil className="h-3.5 w-3.5" />
+              </Button>
+              <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground" onClick={() => setDeleting(r)}>
+                <Trash2 className="h-3.5 w-3.5" />
+              </Button>
+            </div>
+          </div>
+        ))}
+        {rules.length === 0 && <p className="text-sm text-muted-foreground">No subscriptions tracked yet.</p>}
+      </CardContent>
+
+      <RecurringRuleDialog open={open} onOpenChange={setOpen} rule={editing} />
+
+      <AlertDialog open={!!deleting} onOpenChange={(o) => !o && setDeleting(undefined)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Remove "{deleting?.name}"?</AlertDialogTitle>
+            <AlertDialogDescription>This stops future auto-posting. Transactions it already created stay in your history.</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={confirmDelete}>Remove</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </Card>
+  );
+}
+
+function RecurringRuleDialog({ open, onOpenChange, rule }: { open: boolean; onOpenChange: (o: boolean) => void; rule?: RecurringRule }) {
+  const { data: accounts = [] } = useAccounts();
+  const { data: categories = [] } = useCategories('expense');
+  const createRule = useCreateRecurringRule();
+  const updateRule = useUpdateRecurringRule();
+  const isEdit = !!rule;
+  const [name, setName] = useState('');
+  const [amount, setAmount] = useState('');
+  const [frequency, setFrequency] = useState<RecurringFrequency>('monthly');
+  const [accountId, setAccountId] = useState('');
+  const [categoryId, setCategoryId] = useState('');
+  const [nextRunDate, setNextRunDate] = useState('');
+  const [autoPost, setAutoPost] = useState(false);
+
+  useEffect(() => {
+    if (!open) return;
+    if (rule) {
+      setName(rule.name);
+      setAmount(String(rule.amount));
+      setFrequency(rule.frequency);
+      setAccountId(rule.account_id);
+      setCategoryId(rule.category_id || '');
+      setNextRunDate(rule.next_run_date);
+      setAutoPost(rule.auto_post);
+    } else {
+      setName(''); setAmount(''); setFrequency('monthly'); setAccountId(''); setCategoryId('');
+      setNextRunDate(new Date().toISOString().slice(0, 10)); setAutoPost(false);
+    }
+  }, [open, rule]);
+
+  const save = async () => {
+    if (!name || !amount || !accountId) { toast.error('Fill in all fields'); return; }
+    try {
+      if (isEdit) {
+        await updateRule.mutateAsync({
+          id: rule!.id,
+          payload: { name, amount: Number(amount), frequency, account_id: accountId, category_id: categoryId || null, next_run_date: nextRunDate, auto_post: autoPost },
+        });
+        toast.success('Subscription updated');
+      } else {
+        const today = new Date().toISOString().slice(0, 10);
+        await createRule.mutateAsync({
+          name, amount: Number(amount), frequency, account_id: accountId, category_id: categoryId || undefined,
+          start_date: today, next_run_date: nextRunDate || today, type: 'expense', auto_post: autoPost,
+        });
+        toast.success('Subscription added');
+      }
+      onOpenChange(false);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Something went wrong');
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent {...preventAccidentalDialogClose}>
+        <DialogHeader><DialogTitle>{isEdit ? 'Edit subscription' : 'New subscription'}</DialogTitle></DialogHeader>
+        <div className="grid grid-cols-2 gap-3">
+          <div className="col-span-2">
+            <Label>Name</Label>
+            <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Netflix" />
+          </div>
+          <div>
+            <Label>Amount</Label>
+            <Input type="number" value={amount} onChange={(e) => setAmount(e.target.value)} />
+          </div>
+          <div>
+            <Label>Frequency</Label>
+            <Select value={frequency} onValueChange={(v) => setFrequency(v as RecurringFrequency)}>
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="daily">Daily</SelectItem>
+                <SelectItem value="weekly">Weekly</SelectItem>
+                <SelectItem value="monthly">Monthly</SelectItem>
+                <SelectItem value="yearly">Yearly</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <div>
+            <Label>Account</Label>
+            <Select value={accountId} onValueChange={setAccountId}>
+              <SelectTrigger><SelectValue placeholder="Account" /></SelectTrigger>
+              <SelectContent>{accounts.map((a) => <SelectItem key={a.id} value={a.id}>{a.name}</SelectItem>)}</SelectContent>
+            </Select>
+          </div>
+          <div>
+            <Label>Category</Label>
+            <Select value={categoryId} onValueChange={setCategoryId}>
+              <SelectTrigger><SelectValue placeholder="Category" /></SelectTrigger>
+              <SelectContent>{categories.map((c) => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}</SelectContent>
+            </Select>
+          </div>
+          <div className="col-span-2">
+            <Label>Next due date</Label>
+            <Input type="date" value={nextRunDate} onChange={(e) => setNextRunDate(e.target.value)} />
+          </div>
+          <div className="col-span-2 flex items-center justify-between rounded-lg border border-border p-3">
+            <div>
+              <Label htmlFor="autopost-toggle">Autopay</Label>
+              <p className="text-xs text-muted-foreground">Post automatically and debit the account when due - no manual "mark paid" needed.</p>
+            </div>
+            <Switch id="autopost-toggle" checked={autoPost} onCheckedChange={setAutoPost} />
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
+          <Button onClick={save} disabled={createRule.isPending || updateRule.isPending}>{isEdit ? 'Save changes' : 'Add subscription'}</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// --- Bill reminders -------------------------------------------------------
+
+function BillsTab() {
+  const { user } = useAuth();
+  const currency = user?.default_currency || 'INR';
+  const { data: bills = [] } = useBills();
+  const createBill = useCreateBill();
+  const updateBill = useUpdateBill();
+  const deleteBill = useDeleteBill();
+  const [name, setName] = useState('');
+  const [amount, setAmount] = useState('');
+  const [dueDate, setDueDate] = useState('');
+  const [editing, setEditing] = useState<Bill | undefined>(undefined);
+  const [editName, setEditName] = useState('');
+  const [editAmount, setEditAmount] = useState('');
+  const [editDueDate, setEditDueDate] = useState('');
+
+  const add = async () => {
+    if (!name || !amount || !dueDate) { toast.error('Fill in all fields'); return; }
+    try {
+      await createBill.mutateAsync({ name, amount: Number(amount), due_date: dueDate });
+      setName(''); setAmount(''); setDueDate('');
+      toast.success('Reminder added');
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Something went wrong');
+    }
+  };
+
+  const openEdit = (b: Bill) => {
+    setEditing(b); setEditName(b.name); setEditAmount(String(b.amount)); setEditDueDate(b.due_date);
+  };
+
+  const saveEdit = async () => {
+    if (!editing || !editName || !editAmount || !editDueDate) return;
+    try {
+      await updateBill.mutateAsync({ id: editing.id, payload: { name: editName, amount: Number(editAmount), due_date: editDueDate } });
+      toast.success('Reminder updated');
+      setEditing(undefined);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Something went wrong');
+    }
+  };
+
+  const remove = async (id: string) => {
+    try {
+      await deleteBill.mutateAsync(id);
+      toast.success('Reminder deleted');
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Something went wrong');
+    }
+  };
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base">Bill reminders</CardTitle>
+        <CardDescription>Standalone due-date reminders, separate from EMIs.</CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="grid grid-cols-3 gap-2">
+          <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Electricity bill" className="col-span-3" />
+          <Input type="number" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="Amount" />
+          <Input type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} className="col-span-2" />
+          <Button onClick={add} className="col-span-3"><Plus className="mr-2 h-4 w-4" />Add reminder</Button>
+        </div>
+        <div className="space-y-1">
+          {bills.map((b) => (
+            <div key={b.id} className="flex items-center justify-between gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-muted">
+              <div className={cn('min-w-0 truncate', b.is_paid && 'text-muted-foreground line-through')}>{b.name} - {formatMoney(b.amount, currency)} · due {formatDate(b.due_date)}</div>
+              <div className="flex shrink-0 items-center gap-1">
+                {!b.is_paid && (
+                  <Button size="sm" variant="outline" onClick={() => updateBill.mutate({ id: b.id, payload: { is_paid: true } })}>Mark paid</Button>
+                )}
+                <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground" onClick={() => openEdit(b)}>
+                  <Pencil className="h-3.5 w-3.5" />
+                </Button>
+                <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground" onClick={() => remove(b.id)}>
+                  <Trash2 className="h-3.5 w-3.5" />
+                </Button>
+              </div>
+            </div>
+          ))}
+          {bills.length === 0 && <p className="text-sm text-muted-foreground">No reminders set.</p>}
+        </div>
+      </CardContent>
+
+      <Dialog open={!!editing} onOpenChange={(o) => !o && setEditing(undefined)}>
+        <DialogContent {...preventAccidentalDialogClose}>
+          <DialogHeader><DialogTitle>Edit reminder</DialogTitle></DialogHeader>
+          <div className="space-y-3">
+            <div>
+              <Label>Name</Label>
+              <Input value={editName} onChange={(e) => setEditName(e.target.value)} />
+            </div>
+            <div>
+              <Label>Amount</Label>
+              <Input type="number" value={editAmount} onChange={(e) => setEditAmount(e.target.value)} />
+            </div>
+            <div>
+              <Label>Due date</Label>
+              <Input type="date" value={editDueDate} onChange={(e) => setEditDueDate(e.target.value)} />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEditing(undefined)}>Cancel</Button>
+            <Button onClick={saveEdit}>Save</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </Card>
   );
 }

@@ -1,4 +1,4 @@
-import { NavLink, Outlet } from 'react-router-dom';
+import { Link, NavLink, Outlet } from 'react-router-dom';
 import { useEffect, useState } from 'react';
 import {
   LayoutDashboard, Receipt, Wallet, PiggyBank, Target, Landmark, BarChart3, Settings as SettingsIcon,
@@ -28,7 +28,7 @@ const NAV_ITEMS = [
   { to: '/accounts', label: 'Accounts', icon: Wallet },
   { to: '/budgets', label: 'Budgets', icon: PiggyBank },
   { to: '/goals', label: 'Goals', icon: Target },
-  { to: '/loans', label: 'EMIs & Loans', icon: Landmark },
+  { to: '/loans', label: 'EMIs & Bills', icon: Landmark },
   { to: '/reports', label: 'Reports', icon: BarChart3 },
   { to: '/settings', label: 'Settings', icon: SettingsIcon },
 ];
@@ -77,10 +77,10 @@ export function AppShell() {
         {/* Desktop sidebar */}
         <aside className="sticky top-0 hidden h-screen w-64 shrink-0 flex-col border-r border-border p-4 md:flex">
           <div className="mb-6 flex items-center justify-between px-2">
-            <div className="flex items-center gap-2">
+            <Link to="/" className="flex items-center gap-2">
               <LogoBadge className="h-8 w-8" />
               <span className="text-lg font-semibold">MoneyOS</span>
-            </div>
+            </Link>
             <NotificationsBell />
           </div>
           <NavLinks />
@@ -101,10 +101,10 @@ export function AppShell() {
         <div className="flex min-h-screen flex-1 flex-col">
           {/* Mobile top bar */}
           <header className="sticky top-0 z-30 flex items-center justify-between border-b border-border bg-background/95 px-4 py-3 backdrop-blur md:hidden">
-            <div className="flex items-center gap-2">
+            <Link to="/" className="flex items-center gap-2">
               <LogoBadge className="h-7 w-7" />
               <span className="font-semibold">MoneyOS</span>
-            </div>
+            </Link>
             <div className="flex items-center gap-1">
             <NotificationsBell />
             <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
@@ -112,10 +112,10 @@ export function AppShell() {
                 <Button variant="ghost" size="icon"><Menu className="h-5 w-5" /></Button>
               </SheetTrigger>
               <SheetContent side="left" className="w-64 p-4">
-                <div className="mb-6 flex items-center gap-2 px-2">
+                <Link to="/" className="mb-6 flex items-center gap-2 px-2" onClick={() => setMobileOpen(false)}>
                   <LogoBadge className="h-8 w-8" />
                   <span className="text-lg font-semibold">MoneyOS</span>
-                </div>
+                </Link>
                 <NavLinks onNavigate={() => setMobileOpen(false)} />
                 <Button variant="ghost" className="mt-6 w-full justify-start gap-3 text-muted-foreground" onClick={signOut}>
                   <LogOut className="h-4 w-4" /> Sign out

@@ -346,6 +346,19 @@ async function handleDeleteTransaction(id: string, user: AuthedUser): Promise<Re
   if (!existing) return json({ error: "Not found" }, 404);
 
   await applyBalanceEffect(existing as TxRow, -1);
+
+  // Deleting a payment made *into* a credit card (autopay-generated or a
+  // manual transfer) undoes that settlement - clear autopay_last_run so the
+  // card is eligible to be flagged as due again instead of silently staying
+  // "already settled this month" even though the balance now shows it owed.
+  const txWithTransfer = existing as TxRow;
+  if (txWithTransfer.type === "transfer" && txWithTransfer.transfer_to_account_id) {
+    const targetRows = await pg(`/accounts${qs({ id: `eq.${txWithTransfer.transfer_to_account_id}`, type: "eq.credit", select: "id" })}`);
+    if (Array.isArray(targetRows) && targetRows.length > 0) {
+      await pg(`/accounts${qs({ id: `eq.${txWithTransfer.transfer_to_account_id}` })}`, { method: "PATCH", body: JSON.stringify({ autopay_last_run: null }) });
+    }
+  }
+
   await pg(`/transactions${qs({ id: `eq.${id}` })}`, { method: "DELETE" });
   return json({ success: true });
 }
@@ -464,6 +477,16 @@ async function handleUpdateLoan(req: Request, loanId: string, user: AuthedUser):
   const existing = Array.isArray(loanRows) ? loanRows[0] : null;
   if (!existing) return json({ error: "Not found" }, 404);
 
+  const allPayments = await pg(`/loan_payments${qs({ loan_id: `eq.${loanId}`, select: "*", order: "installment_number.asc" })}`);
+  const paid = (allPayments as Array<{ status: string; installment_number: number; due_date: string; remaining_balance: string }>).filter((p) => p.status === "paid");
+  const lastPaid = paid[paid.length - 1];
+
+  // Once any installment is paid, the schedule is permanently anchored to
+  // that installment's due date (below) - the original start_date no longer
+  // has any effect on it, so accepting a new value here would just leave a
+  // fake "start date" on the loan that misrepresents its real schedule.
+  if (lastPaid && "start_date" in patch) delete patch.start_date;
+
   const scheduleAffected = SCHEDULE_AFFECTING_FIELDS.some((f) => f in patch && String(patch[f]) !== String(existing[f]));
 
   const merged = { ...existing, ...patch, updated_at: new Date().toISOString() };
@@ -473,10 +496,6 @@ async function handleUpdateLoan(req: Request, loanId: string, user: AuthedUser):
 
   let schedule: unknown = undefined;
   if (scheduleAffected) {
-    const allPayments = await pg(`/loan_payments${qs({ loan_id: `eq.${loanId}`, select: "*", order: "installment_number.asc" })}`);
-    const paid = (allPayments as Array<{ status: string; installment_number: number; due_date: string; remaining_balance: string }>).filter((p) => p.status === "paid");
-    const lastPaid = paid[paid.length - 1];
-
     const remainingPrincipal = lastPaid ? Number(lastPaid.remaining_balance) : Number(updated.principal_amount);
     const remainingTenure = Number(updated.tenure_months) - paid.length;
     const scheduleStartDate = lastPaid ? lastPaid.due_date : updated.start_date;
