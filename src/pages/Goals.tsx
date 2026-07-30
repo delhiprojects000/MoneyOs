@@ -10,6 +10,8 @@ import { useAuth } from '@/contexts/AuthContext';
 import { formatMoney, formatDate } from '@/lib/format';
 import { Plus, Trash2, Target, PartyPopper } from 'lucide-react';
 import { toast } from 'sonner';
+import { preventAccidentalDialogClose } from '@/lib/utils';
+import { ProgressCardGridSkeleton } from '@/components/skeletons/primitives';
 import type { Goal } from '@/lib/api';
 
 function monthsUntil(dateStr: string | null): number {
@@ -22,7 +24,7 @@ function monthsUntil(dateStr: string | null): number {
 export default function Goals() {
   const { user } = useAuth();
   const currency = user?.default_currency || 'INR';
-  const { data: goals = [] } = useGoals();
+  const { data: goals = [], isLoading } = useGoals();
   const updateGoal = useUpdateGoal();
   const deleteGoal = useDeleteGoal();
   const [open, setOpen] = useState(false);
@@ -52,6 +54,7 @@ export default function Goals() {
         <Button onClick={() => setOpen(true)}><Plus className="mr-2 h-4 w-4" />New goal</Button>
       </div>
 
+      {isLoading ? <ProgressCardGridSkeleton count={3} className="lg:!grid-cols-3" /> : (
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
         {goals.map((g) => {
           const pct = Math.min(100, Math.round((g.current_amount / g.target_amount) * 100));
@@ -94,11 +97,12 @@ export default function Goals() {
         })}
         {goals.length === 0 && <p className="col-span-full text-sm text-muted-foreground">No goals yet — set one to start saving with a plan.</p>}
       </div>
+      )}
 
       <NewGoalDialog open={open} onOpenChange={setOpen} />
 
       <Dialog open={!!contributingTo} onOpenChange={(o) => !o && setContributingTo(undefined)}>
-        <DialogContent>
+        <DialogContent {...preventAccidentalDialogClose}>
           <DialogHeader><DialogTitle>Add to "{contributingTo?.name}"</DialogTitle></DialogHeader>
           <Input type="number" value={contribution} onChange={(e) => setContribution(e.target.value)} placeholder="Amount" autoFocus />
           <DialogFooter>
@@ -131,7 +135,7 @@ function NewGoalDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (o
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
+      <DialogContent {...preventAccidentalDialogClose}>
         <DialogHeader><DialogTitle>New goal</DialogTitle></DialogHeader>
         <div className="space-y-4">
           <div>

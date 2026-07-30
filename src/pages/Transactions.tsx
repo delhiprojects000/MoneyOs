@@ -13,6 +13,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { formatMoney, formatDateTime } from '@/lib/format';
 import { Plus, Search, Trash2, Pencil } from 'lucide-react';
 import { TransactionDialog } from '@/components/transactions/TransactionDialog';
+import { ListSkeleton } from '@/components/skeletons/primitives';
 import { toast } from 'sonner';
 import type { Transaction } from '@/lib/api';
 
@@ -99,11 +100,11 @@ export default function TransactionsPage() {
         </Select>
       </div>
 
-      {isLoading && <p className="text-sm text-muted-foreground">Loading…</p>}
+      {isLoading && <ListSkeleton count={6} withBadge={false} />}
       {!isLoading && grouped.length === 0 && <p className="text-sm text-muted-foreground">No transactions match these filters.</p>}
 
       <div className="space-y-6">
-        {grouped.map(([day, txs]) => (
+        {!isLoading && grouped.map(([day, txs]) => (
           <div key={day}>
             <p className="mb-2 text-sm font-medium text-muted-foreground">{new Date(day).toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'long' })}</p>
             <Card>

@@ -11,11 +11,13 @@ import { useAuth } from '@/contexts/AuthContext';
 import { formatMoney, formatDate } from '@/lib/format';
 import { Plus, Landmark, CheckCircle2 } from 'lucide-react';
 import { toast } from 'sonner';
+import { preventAccidentalDialogClose } from '@/lib/utils';
+import { LoansSkeleton } from '@/components/skeletons/pages';
 
 export default function Loans() {
   const { user } = useAuth();
   const currency = user?.default_currency || 'INR';
-  const { data: loans = [] } = useLoans();
+  const { data: loans = [], isLoading } = useLoans();
   const [open, setOpen] = useState(false);
   const [expanded, setExpanded] = useState<string | undefined>(undefined);
 
@@ -29,6 +31,7 @@ export default function Loans() {
         <Button onClick={() => setOpen(true)}><Plus className="mr-2 h-4 w-4" />Add loan</Button>
       </div>
 
+      {isLoading ? <LoansSkeleton /> : (
       <div className="space-y-4">
         {loans.map((l) => (
           <Card key={l.id}>
@@ -49,6 +52,7 @@ export default function Loans() {
         ))}
         {loans.length === 0 && <p className="text-sm text-muted-foreground">No loans tracked yet.</p>}
       </div>
+      )}
 
       <NewLoanDialog open={open} onOpenChange={setOpen} />
     </div>
@@ -131,7 +135,7 @@ function NewLoanDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (o
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[90vh] overflow-y-auto">
+      <DialogContent className="max-h-[90vh] overflow-y-auto" {...preventAccidentalDialogClose}>
         <DialogHeader><DialogTitle>Add a loan / EMI</DialogTitle></DialogHeader>
         <div className="grid grid-cols-2 gap-3">
           <div className="col-span-2">

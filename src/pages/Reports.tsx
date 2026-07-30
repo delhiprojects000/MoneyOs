@@ -4,6 +4,7 @@ import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useCategories, useReportsSummary } from '@/hooks/useMoneyData';
 import { useAuth } from '@/contexts/AuthContext';
 import { formatMoney } from '@/lib/format';
+import { ReportsSkeleton } from '@/components/skeletons/pages';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
 
 const PIE_COLORS = ['#059669', '#0284c7', '#ea580c', '#7c3aed', '#e11d48', '#d97706', '#0d9488', '#db2777', '#84cc16', '#64748b'];
@@ -12,7 +13,7 @@ export default function Reports() {
   const { user } = useAuth();
   const currency = user?.default_currency || 'INR';
   const [range, setRange] = useState<'day' | 'week' | 'month' | 'year'>('month');
-  const { data: summary } = useReportsSummary(range);
+  const { data: summary, isLoading } = useReportsSummary(range);
   const { data: categories = [] } = useCategories('expense');
 
   const categoryName = Object.fromEntries(categories.map((c) => [c.id, c.name]));
@@ -37,6 +38,8 @@ export default function Reports() {
         </Tabs>
       </div>
 
+      {isLoading ? <ReportsSkeleton /> : (
+      <>
       <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
         <SummaryTile label="Income" value={formatMoney(summary?.totals.income ?? 0, currency)} tone="success" />
         <SummaryTile label="Expense" value={formatMoney(summary?.totals.expense ?? 0, currency)} tone="destructive" />
@@ -120,6 +123,8 @@ export default function Reports() {
           {(summary?.budgets ?? []).length === 0 && <p className="text-sm text-muted-foreground">No active budgets to compare.</p>}
         </CardContent>
       </Card>
+      </>
+      )}
     </div>
   );
 }

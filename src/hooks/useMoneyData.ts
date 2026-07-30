@@ -98,6 +98,10 @@ export function useLoanSchedule(loanId: string | undefined) {
   return useQuery({ queryKey: ['loan-schedule', loanId], queryFn: () => loans.schedule(loanId!), enabled: !!loanId });
 }
 
+export function usePendingLoanPayments() {
+  return useQuery({ queryKey: ['loan-payments-pending'], queryFn: loans.pendingPayments });
+}
+
 export function useCreateLoan() {
   const qc = useQueryClient();
   return useMutation({
@@ -114,6 +118,7 @@ export function usePayLoanInstallment() {
     onSuccess: (_data, vars) => {
       invalidate();
       qc.invalidateQueries({ queryKey: ['loan-schedule', vars.loanId] });
+      qc.invalidateQueries({ queryKey: ['loan-payments-pending'] });
     },
   });
 }

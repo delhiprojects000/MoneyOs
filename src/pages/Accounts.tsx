@@ -10,6 +10,8 @@ import { useAuth } from '@/contexts/AuthContext';
 import { formatMoney } from '@/lib/format';
 import { Plus, Wallet, Landmark, CreditCard, Smartphone, PiggyBank, ArrowLeftRight, Archive } from 'lucide-react';
 import { toast } from 'sonner';
+import { preventAccidentalDialogClose } from '@/lib/utils';
+import { CardGridSkeleton } from '@/components/skeletons/primitives';
 import type { Account, AccountType } from '@/lib/api';
 
 const TYPE_ICONS: Record<AccountType, typeof Wallet> = {
@@ -27,7 +29,7 @@ const TYPE_OPTIONS: { value: AccountType; label: string }[] = [
 ];
 
 export default function Accounts() {
-  const { data: accounts = [] } = useAccounts();
+  const { data: accounts = [], isLoading } = useAccounts();
   const { user } = useAuth();
   const currency = user?.default_currency || 'INR';
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -50,28 +52,32 @@ export default function Accounts() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        {active.map((a) => {
-          const Icon = TYPE_ICONS[a.type];
-          return (
-            <Card key={a.id} className="hover-lift cursor-pointer" onClick={() => { setEditing(a); setDialogOpen(true); }}>
-              <CardContent className="p-5">
-                <div className="mb-3 flex items-center justify-between">
-                  <div className="flex h-10 w-10 items-center justify-center rounded-lg" style={{ backgroundColor: `${a.color || '#16a34a'}20`, color: a.color || '#16a34a' }}>
-                    <Icon className="h-5 w-5" />
+      {isLoading ? (
+        <CardGridSkeleton count={3} />
+      ) : (
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          {active.map((a) => {
+            const Icon = TYPE_ICONS[a.type];
+            return (
+              <Card key={a.id} className="hover-lift cursor-pointer" onClick={() => { setEditing(a); setDialogOpen(true); }}>
+                <CardContent className="p-5">
+                  <div className="mb-3 flex items-center justify-between">
+                    <div className="flex h-10 w-10 items-center justify-center rounded-lg" style={{ backgroundColor: `${a.color || '#16a34a'}20`, color: a.color || '#16a34a' }}>
+                      <Icon className="h-5 w-5" />
+                    </div>
+                    <span className="text-xs uppercase text-muted-foreground">{a.type}</span>
                   </div>
-                  <span className="text-xs uppercase text-muted-foreground">{a.type}</span>
-                </div>
-                <p className="text-sm text-muted-foreground">{a.name}</p>
-                <p className="mt-1 text-xl font-semibold tabular-nums">{formatMoney(a.current_balance, a.currency)}</p>
-              </CardContent>
-            </Card>
-          );
-        })}
-        {active.length === 0 && (
-          <p className="col-span-full text-sm text-muted-foreground">No accounts yet. Add your first wallet to start tracking.</p>
-        )}
-      </div>
+                  <p className="text-sm text-muted-foreground">{a.name}</p>
+                  <p className="mt-1 text-xl font-semibold tabular-nums">{formatMoney(a.current_balance, a.currency)}</p>
+                </CardContent>
+              </Card>
+            );
+          })}
+          {active.length === 0 && (
+            <p className="col-span-full text-sm text-muted-foreground">No accounts yet. Add your first wallet to start tracking.</p>
+          )}
+        </div>
+      )}
 
       <AccountDialog open={dialogOpen} onOpenChange={setDialogOpen} account={editing} />
       <TransferDialog open={transferOpen} onOpenChange={setTransferOpen} accounts={active} currency={currency} />
@@ -110,7 +116,7 @@ function AccountDialog({ open, onOpenChange, account }: { open: boolean; onOpenC
 
   return (
     <Dialog open={open} onOpenChange={(o) => { onOpenChange(o); if (o && !account) { setName(''); setType('bank'); setOpening('0'); } }}>
-      <DialogContent>
+      <DialogContent {...preventAccidentalDialogClose}>
         <DialogHeader><DialogTitle>{account ? 'Edit account' : 'Add account'}</DialogTitle></DialogHeader>
         <div className="space-y-4">
           <div>
@@ -159,7 +165,9 @@ function TransferDialog({ open, onOpenChange, accounts, currency }: { open: bool
     if (!from || !to || !amount) { toast.error('Fill in all fields'); return; }
     if (from === to) { toast.error('Pick two different accounts'); return; }
     try {
-      await transfer.mutateAsync({ from, to, amount: Number(amount) });
+      const fromName = accounts.find((a) => a.id === from)?.name ?? 'Account';
+      const toName = accounts.find((a) => a.id === to)?.name ?? 'Account';
+      await transfer.mutateAsync({ from, to, amount: Number(amount), description: `${fromName} → ${toName}` });
       toast.success('Transferred');
       onOpenChange(false);
       setAmount('');
@@ -170,7 +178,7 @@ function TransferDialog({ open, onOpenChange, accounts, currency }: { open: bool
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
+      <DialogContent {...preventAccidentalDialogClose}>
         <DialogHeader><DialogTitle>Transfer between accounts</DialogTitle></DialogHeader>
         <div className="space-y-4">
           <div>

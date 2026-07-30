@@ -2,11 +2,12 @@ import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { useAccounts, useTransactions, useReportsSummary, useLoans, useLoanSchedule, useBills } from '@/hooks/useMoneyData';
+import { useAccounts, useTransactions, useReportsSummary, useLoans, usePendingLoanPayments, useBills } from '@/hooks/useMoneyData';
 import { useAuth } from '@/contexts/AuthContext';
 import { formatMoney, formatRelativeDay } from '@/lib/format';
 import { ArrowDownRight, ArrowUpRight, Wallet, TrendingUp, TrendingDown, AlertCircle } from 'lucide-react';
 import { TransactionDialog } from '@/components/transactions/TransactionDialog';
+import { DashboardSkeleton } from '@/components/skeletons/pages';
 import { AreaChart, Area, ResponsiveContainer, Tooltip, XAxis } from 'recharts';
 import type { Transaction } from '@/lib/api';
 
@@ -19,22 +20,42 @@ function greeting() {
 
 export default function Dashboard() {
   const { user } = useAuth();
-  const { data: accounts = [] } = useAccounts();
+  const { data: accounts = [], isLoading: accountsLoading } = useAccounts();
   const { data: recentTx = [] } = useTransactions({ limit: 6 });
-  const { data: summary } = useReportsSummary('month');
+  const { data: summary, isLoading: summaryLoading } = useReportsSummary('month');
   const { data: loans = [] } = useLoans();
+  const { data: pendingPayments = [] } = usePendingLoanPayments();
   const { data: bills = [] } = useBills();
   const [editingTx, setEditingTx] = useState<Transaction | undefined>(undefined);
 
   const totalBalance = accounts.reduce((s, a) => s + a.current_balance, 0);
   const currency = user?.default_currency || 'INR';
 
-  const upcomingBills = useMemo(
-    () => bills.filter((b) => !b.is_paid).sort((a, b) => a.due_date.localeCompare(b.due_date)).slice(0, 4),
-    [bills],
-  );
+  // Merge loan installments and standalone bills into one list sorted by
+  // actual due date - previously loans always rendered before bills
+  // regardless of which was due sooner.
+  const upcomingDues = useMemo(() => {
+    const loanNameById = Object.fromEntries(loans.map((l) => [l.id, l.name]));
+    const nextPaymentPerLoan = new Map<string, (typeof pendingPayments)[number]>();
+    for (const p of pendingPayments) if (!nextPaymentPerLoan.has(p.loan_id)) nextPaymentPerLoan.set(p.loan_id, p);
 
-  const activeLoans = loans.filter((l) => l.status === 'active');
+    const loanDues = [...nextPaymentPerLoan.values()].map((p) => ({
+      key: `loan-${p.id}`,
+      label: `${loanNameById[p.loan_id] ?? 'Loan'} — EMI ${p.installment_number}`,
+      amount: p.principal_component + p.interest_component,
+      due_date: p.due_date,
+    }));
+    const billDues = bills.filter((b) => !b.is_paid).map((b) => ({
+      key: `bill-${b.id}`,
+      label: b.name,
+      amount: b.amount,
+      due_date: b.due_date,
+    }));
+
+    return [...loanDues, ...billDues].sort((a, b) => a.due_date.localeCompare(b.due_date)).slice(0, 4);
+  }, [loans, pendingPayments, bills]);
+
+  if (accountsLoading || summaryLoading) return <DashboardSkeleton />;
 
   return (
     <div className="space-y-6">
@@ -93,20 +114,19 @@ export default function Dashboard() {
             <CardTitle className="text-base">Upcoming dues</CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
-            {activeLoans.slice(0, 2).map((l) => <LoanDue key={l.id} loanId={l.id} name={l.name} currency={currency} />)}
-            {upcomingBills.map((b) => (
-              <div key={b.id} className="flex items-center justify-between text-sm">
+            {upcomingDues.map((d) => (
+              <div key={d.key} className="flex items-center justify-between text-sm">
                 <div className="flex items-center gap-2">
                   <AlertCircle className="h-4 w-4 text-warning" />
-                  <span>{b.name}</span>
+                  <span>{d.label}</span>
                 </div>
                 <div className="text-right">
-                  <p className="font-medium tabular-nums">{formatMoney(b.amount, currency)}</p>
-                  <p className="text-xs text-muted-foreground">{formatRelativeDay(b.due_date)}</p>
+                  <p className="font-medium tabular-nums">{formatMoney(d.amount, currency)}</p>
+                  <p className="text-xs text-muted-foreground">{formatRelativeDay(d.due_date)}</p>
                 </div>
               </div>
             ))}
-            {activeLoans.length === 0 && upcomingBills.length === 0 && (
+            {upcomingDues.length === 0 && (
               <p className="text-sm text-muted-foreground">Nothing due — you're all caught up.</p>
             )}
           </CardContent>
@@ -142,24 +162,6 @@ export default function Dashboard() {
       </Card>
 
       {editingTx && <TransactionDialog open={!!editingTx} onOpenChange={(o) => !o && setEditingTx(undefined)} transaction={editingTx} />}
-    </div>
-  );
-}
-
-function LoanDue({ loanId, name, currency }: { loanId: string; name: string; currency: string }) {
-  const { data: schedule = [] } = useLoanSchedule(loanId);
-  const next = schedule.find((p) => p.status !== 'paid');
-  if (!next) return null;
-  return (
-    <div className="flex items-center justify-between text-sm">
-      <div className="flex items-center gap-2">
-        <AlertCircle className="h-4 w-4 text-muted-foreground" />
-        <span>{name} — EMI {next.installment_number}</span>
-      </div>
-      <div className="text-right">
-        <p className="font-medium tabular-nums">{formatMoney(next.principal_component + next.interest_component, currency)}</p>
-        <p className="text-xs text-muted-foreground">{formatRelativeDay(next.due_date)}</p>
-      </div>
     </div>
   );
 }

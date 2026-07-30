@@ -16,6 +16,7 @@ import { formatDate, formatMoney } from '@/lib/format';
 import { Sun, Moon, Plus, Download, Check, Repeat } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
+import { SettingsSkeleton } from '@/components/skeletons/pages';
 
 const CURRENCIES = ['INR', 'USD', 'EUR', 'GBP', 'AED', 'SGD'];
 const PALETTE_LABELS: Record<Exclude<ColorPalette, 'custom'>, string> = {
@@ -23,18 +24,30 @@ const PALETTE_LABELS: Record<Exclude<ColorPalette, 'custom'>, string> = {
 };
 
 export default function Settings() {
+  // These are the same queries CategoriesCard/BillsCard/RecurringCard make
+  // themselves - calling them here too just reads the shared cache, it
+  // doesn't re-fetch, and lets the whole page show one skeleton instead of
+  // each card popping in separately.
+  const { isLoading: categoriesLoading } = useCategories();
+  const { isLoading: billsLoading } = useBills();
+  const { isLoading: recurringLoading } = useRecurringRules();
+
   return (
     <div className="max-w-2xl space-y-6">
       <div>
         <h1 className="text-2xl font-semibold">Settings</h1>
         <p className="text-muted-foreground">Your profile, appearance, and categories.</p>
       </div>
-      <ProfileCard />
-      <AppearanceCard />
-      <CategoriesCard />
-      <RecurringCard />
-      <BillsCard />
-      <DataExportCard />
+      {categoriesLoading || billsLoading || recurringLoading ? <SettingsSkeleton /> : (
+        <>
+          <ProfileCard />
+          <AppearanceCard />
+          <CategoriesCard />
+          <RecurringCard />
+          <BillsCard />
+          <DataExportCard />
+        </>
+      )}
     </div>
   );
 }
@@ -305,8 +318,14 @@ function downloadBlob(content: string, mimeType: string, fileName: string) {
   const a = document.createElement('a');
   a.href = url;
   a.download = fileName;
+  // Must be attached to the DOM for the click to reliably trigger a
+  // download in every browser, and the object URL has to outlive the click
+  // handler - revoking it synchronously right after .click() can race with
+  // the browser actually starting to read the blob.
+  document.body.appendChild(a);
   a.click();
-  URL.revokeObjectURL(url);
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
 function toCsv(rows: Array<Record<string, unknown>>): string {

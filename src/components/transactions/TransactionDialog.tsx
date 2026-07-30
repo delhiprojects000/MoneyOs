@@ -10,6 +10,7 @@ import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useAccounts, useCategories, usePaymentMethods, useCreateTransaction, useUpdateTransaction } from '@/hooks/useMoneyData';
 import { toDatetimeLocalValue } from '@/lib/format';
 import { upload, type Transaction, type TransactionType } from '@/lib/api';
+import { preventAccidentalDialogClose } from '@/lib/utils';
 import { toast } from 'sonner';
 import { Paperclip, Loader2 } from 'lucide-react';
 
@@ -145,7 +146,7 @@ export function TransactionDialog({ open, onOpenChange, transaction, defaultAcco
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[90vh] max-w-lg overflow-y-auto">
+      <DialogContent className="max-h-[90vh] max-w-lg overflow-y-auto" {...preventAccidentalDialogClose}>
         <DialogHeader>
           <DialogTitle>{isEdit ? 'Edit transaction' : 'Add transaction'}</DialogTitle>
         </DialogHeader>

@@ -11,12 +11,14 @@ import { useAuth } from '@/contexts/AuthContext';
 import { formatMoney } from '@/lib/format';
 import { Plus, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
+import { preventAccidentalDialogClose } from '@/lib/utils';
+import { ProgressCardGridSkeleton } from '@/components/skeletons/primitives';
 import type { BudgetPeriod } from '@/lib/api';
 
 export default function Budgets() {
   const { user } = useAuth();
   const currency = user?.default_currency || 'INR';
-  const { data: budgets = [] } = useBudgets();
+  const { data: budgets = [], isLoading } = useBudgets();
   const { data: categories = [] } = useCategories('expense');
   const { data: summary } = useReportsSummary('month');
   const deleteBudget = useDeleteBudget();
@@ -36,6 +38,7 @@ export default function Budgets() {
         <Button onClick={() => setOpen(true)}><Plus className="mr-2 h-4 w-4" />New budget</Button>
       </div>
 
+      {isLoading ? <ProgressCardGridSkeleton count={4} /> : (
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
         {budgets.filter((b) => b.is_active).map((b) => {
           const spent = b.category_id ? (spentByCategory[b.category_id] || 0) : overallSpent;
@@ -65,6 +68,7 @@ export default function Budgets() {
         })}
         {budgets.length === 0 && <p className="col-span-full text-sm text-muted-foreground">No budgets yet — set one to keep spending on track.</p>}
       </div>
+      )}
 
       <NewBudgetDialog open={open} onOpenChange={setOpen} />
     </div>
@@ -97,7 +101,7 @@ function NewBudgetDialog({ open, onOpenChange }: { open: boolean; onOpenChange: 
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
+      <DialogContent {...preventAccidentalDialogClose}>
         <DialogHeader><DialogTitle>New budget</DialogTitle></DialogHeader>
         <div className="space-y-4">
           <div>

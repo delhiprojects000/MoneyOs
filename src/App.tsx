@@ -13,6 +13,7 @@ import Goals from '@/pages/Goals';
 import Loans from '@/pages/Loans';
 import Reports from '@/pages/Reports';
 import Settings from '@/pages/Settings';
+import { AuthSkeleton } from '@/components/skeletons/pages';
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { retry: 1, staleTime: 30_000 } },
@@ -20,7 +21,7 @@ const queryClient = new QueryClient({
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuth();
-  if (loading) return <div className="flex min-h-screen items-center justify-center text-muted-foreground">Loading…</div>;
+  if (loading) return <AuthSkeleton />;
   if (!user) return <Navigate to="/auth" replace />;
   return <>{children}</>;
 }

@@ -231,7 +231,7 @@ export const auth = {
 
 // --- Generic data gateway -------------------------------------------------
 
-type DataTable = 'categories' | 'payment_methods' | 'accounts' | 'recurring_rules' | 'loans' | 'budgets' | 'goals' | 'bills' | 'attachments';
+type DataTable = 'categories' | 'payment_methods' | 'accounts' | 'recurring_rules' | 'loans' | 'budgets' | 'goals' | 'bills' | 'attachments' | 'loan_payments';
 
 async function dataSelect<T>(table: DataTable, opts: { filters?: Record<string, unknown>; order?: string; limit?: number } = {}): Promise<T[]> {
   return (await jsonCall('/data', 'POST', { table, operation: 'select', ...opts })).data;
@@ -348,6 +348,10 @@ export const loans = {
   schedule: (loanId: string): Promise<LoanPayment[]> => call(`/loans/${loanId}/schedule`).then((r) => r.data),
   payInstallment: (loanId: string, paymentId: string): Promise<{ data: LoanPayment; transaction: Transaction }> =>
     jsonCall(`/loans/${loanId}/payments/${paymentId}/pay`, 'POST'),
+  // Soonest unpaid installment per loan, for merging into a single
+  // "upcoming dues" list alongside standalone bills - one query instead of
+  // one schedule fetch per loan.
+  pendingPayments: () => dataSelect<LoanPayment>('loan_payments', { filters: { status: 'neq.paid' }, order: 'due_date.asc' }),
 };
 
 // --- Reports -----------------------------------------------------------

@@ -233,7 +233,7 @@ async function handleData(req: Request, user: AuthedUser): Promise<Response> {
     // every user should see their own rows plus the shared system ones.
     params["or"] = `(user_id.eq.${user.sub},user_id.is.null)`;
     if (filters && typeof filters === "object") {
-      for (const [k, v] of Object.entries(filters)) params[k] = typeof v === "string" && /^(eq|gt|gte|lt|lte|like|ilike|in|is)\./.test(v) ? v : `eq.${v}`;
+      for (const [k, v] of Object.entries(filters)) params[k] = typeof v === "string" && /^(eq|neq|gt|gte|lt|lte|like|ilike|in|is)\./.test(v) ? v : `eq.${v}`;
     }
     if (order) params["order"] = order;
     if (limit) params["limit"] = String(limit);
@@ -405,6 +405,15 @@ function generateAmortizationSchedule(principal: number, annualRatePct: number, 
   return schedule;
 }
 
+// Loans created without an explicit category default to the seeded "EMI &
+// Loans" system category, so installment payments actually show up in
+// category-based reporting (pie chart, budget-vs-actual) instead of being
+// invisible there.
+async function defaultLoanCategoryId(): Promise<string | null> {
+  const rows = await pg(`/categories${qs({ name: "eq.EMI & Loans", "user_id": "is.null", select: "id", limit: "1" })}`);
+  return Array.isArray(rows) && rows.length > 0 ? rows[0].id : null;
+}
+
 async function handleCreateLoan(req: Request, user: AuthedUser): Promise<Response> {
   const body = await req.json().catch(() => ({}));
   const { name, lender_name, principal_amount, interest_rate = 0, tenure_months, emi_amount, start_date, account_id, category_id, notes } = body;
@@ -412,9 +421,11 @@ async function handleCreateLoan(req: Request, user: AuthedUser): Promise<Respons
     return json({ error: "Missing required loan fields" }, 400);
   }
 
+  const resolvedCategoryId = category_id || await defaultLoanCategoryId();
+
   const loan = await pg(`/loans`, {
     method: "POST", single: true,
-    body: JSON.stringify({ user_id: user.sub, name, lender_name: lender_name || null, principal_amount, interest_rate, tenure_months, emi_amount, start_date, account_id, category_id: category_id || null, notes: notes || null }),
+    body: JSON.stringify({ user_id: user.sub, name, lender_name: lender_name || null, principal_amount, interest_rate, tenure_months, emi_amount, start_date, account_id, category_id: resolvedCategoryId, notes: notes || null }),
   });
 
   const schedule = generateAmortizationSchedule(Number(principal_amount), Number(interest_rate), Number(tenure_months), Number(emi_amount), start_date);
