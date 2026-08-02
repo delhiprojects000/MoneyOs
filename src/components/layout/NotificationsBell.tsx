@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { Bell, AlertTriangle, CreditCard, Repeat, Landmark, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { useAccounts, useBills, useLoans, usePendingLoanPayments, useRecurringRules } from '@/hooks/useMoneyData';
+import { useBills, useCreditCardStatements, useLoans, usePendingLoanPayments, useRecurringRules } from '@/hooks/useMoneyData';
 import { formatMoney, formatRelativeDay } from '@/lib/format';
 import { useAuth } from '@/contexts/AuthContext';
 import { buildUpcomingItems, daysUntil, type UpcomingKind } from '@/lib/upcoming';
@@ -18,11 +18,11 @@ const KIND_ICON: Record<UpcomingKind, typeof Bell> = {
 export function NotificationsBell() {
   const { user } = useAuth();
   const currency = user?.default_currency || 'INR';
-  const { data: accounts = [] } = useAccounts();
   const { data: bills = [] } = useBills();
   const { data: loans = [] } = useLoans();
   const { data: pendingPayments = [] } = usePendingLoanPayments();
   const { data: rules = [] } = useRecurringRules();
+  const { data: cardStatements = [] } = useCreditCardStatements();
   const { isDismissed, dismiss, dismissAll } = useDismissedReminders();
 
   const allReminders = useMemo(() => {
@@ -30,14 +30,14 @@ export function NotificationsBell() {
     // needed from the user, so they're excluded here - Dashboard's upcoming
     // list still shows them since that's meant to be a full picture.
     const nonAutoRules = rules.filter((r) => !r.auto_post);
-    const autopayByAccount = Object.fromEntries(accounts.map((a) => [a.id, a.autopay_enabled]));
-    const items = buildUpcomingItems({ accounts, bills, loans, pendingPayments, rules: nonAutoRules });
+    const autopayByCard = Object.fromEntries(cardStatements.map((s) => [s.account_id, s.autopay_enabled]));
+    const items = buildUpcomingItems({ bills, loans, pendingPayments, rules: nonAutoRules, cardStatements });
     return items
       .filter((i) => daysUntil(i.dueDate) <= REMINDER_LOOKAHEAD_DAYS)
       .map((i) => i.kind === 'credit_card'
-        ? { ...i, label: autopayByAccount[i.key.replace('card-', '')] ? `${i.label} - autopay not yet resolved` : i.label }
+        ? { ...i, label: autopayByCard[i.key.replace('card-', '')] ? `${i.label} - autopay not yet resolved` : i.label }
         : i);
-  }, [accounts, bills, loans, pendingPayments, rules]);
+  }, [bills, loans, pendingPayments, rules, cardStatements]);
 
   // Each key already embeds the specific due date (loan payment id, bill id,
   // or the rule/card id) - dismissing it only hides *this* occurrence, so it
@@ -79,7 +79,10 @@ export function NotificationsBell() {
               <div key={r.key} className="group flex items-center justify-between gap-2 rounded-md px-2 py-2 text-sm hover:bg-muted">
                 <Link to={r.href} className="flex min-w-0 flex-1 items-center gap-2">
                   <Icon className={`h-4 w-4 shrink-0 ${r.overdue ? 'text-destructive' : 'text-warning'}`} />
-                  <span className="truncate">{r.label}</span>
+                  <span className="min-w-0">
+                    <span className="block truncate">{r.label}</span>
+                    {r.period && <span className="block truncate text-xs text-muted-foreground">for {r.period}</span>}
+                  </span>
                 </Link>
                 <div className="shrink-0 text-right">
                   <p className="tabular-nums font-medium">{formatMoney(r.amount, currency)}</p>

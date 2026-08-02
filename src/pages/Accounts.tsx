@@ -7,14 +7,15 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { useAccounts, useCreateAccount, useUpdateAccount, useTransferFunds } from '@/hooks/useMoneyData';
+import { useAccounts, useCreateAccount, useUpdateAccount, useTransferFunds, useCreditCardStatements } from '@/hooks/useMoneyData';
 import { useAuth } from '@/contexts/AuthContext';
-import { formatMoney } from '@/lib/format';
+import { formatMoney, formatDayMonth, formatRelativeDay } from '@/lib/format';
 import { Plus, Wallet, Landmark, CreditCard, Smartphone, PiggyBank, ArrowLeftRight, Archive, Zap } from 'lucide-react';
 import { toast } from 'sonner';
 import { preventAccidentalDialogClose } from '@/lib/utils';
+import { daysUntil } from '@/lib/upcoming';
 import { CardGridSkeleton } from '@/components/skeletons/primitives';
-import type { Account, AccountType } from '@/lib/api';
+import type { Account, AccountType, CreditCardStatement } from '@/lib/api';
 
 const TYPE_ICONS: Record<AccountType, typeof Wallet> = {
   cash: Wallet, bank: Landmark, card: CreditCard, upi: Smartphone, wallet: Wallet, savings: PiggyBank, credit: CreditCard,
@@ -32,6 +33,7 @@ const TYPE_OPTIONS: { value: AccountType; label: string }[] = [
 
 export default function Accounts() {
   const { data: accounts = [], isLoading } = useAccounts();
+  const { data: statements = [] } = useCreditCardStatements();
   const { user } = useAuth();
   const currency = user?.default_currency || 'INR';
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -40,6 +42,7 @@ export default function Accounts() {
 
   const active = accounts.filter((a) => !a.is_archived);
   const total = active.reduce((s, a) => s + a.current_balance, 0);
+  const statementByCard = Object.fromEntries(statements.map((s) => [s.account_id, s]));
 
   return (
     <div className="space-y-6">
@@ -87,6 +90,7 @@ export default function Accounts() {
                       ) : (
                         <p className="mt-2 text-xs text-muted-foreground">No credit limit set</p>
                       )}
+                      <StatementSummary statement={statementByCard[a.id]} />
                     </>
                   ) : (
                     <p className="mt-1 text-xl font-semibold tabular-nums">{formatMoney(a.current_balance, a.currency)}</p>
@@ -107,6 +111,46 @@ export default function Accounts() {
   );
 }
 
+// The two numbers that matter on a card are not the same thing: what the
+// closed statement demands by its due date, and what's been swiped since that
+// statement closed (which isn't owed until the *next* due date, however large
+// it already is).
+function StatementSummary({ statement }: { statement?: CreditCardStatement }) {
+  if (!statement) return null;
+
+  if (!statement.statement_day) {
+    return (
+      <p className="mt-3 border-t border-border pt-2 text-xs text-muted-foreground">
+        Set a statement day to split this into "billed" and "not yet billed".
+      </p>
+    );
+  }
+
+  const overdue = statement.amount_due > 0 && statement.due_date != null && daysUntil(statement.due_date) < 0;
+
+  return (
+    <div className="mt-3 space-y-1 border-t border-border pt-2 text-xs">
+      {statement.amount_due > 0 ? (
+        <p className={overdue ? 'text-destructive' : ''}>
+          <span className="font-medium tabular-nums">{formatMoney(statement.amount_due, statement.currency)}</span>
+          {' '}due {statement.due_date ? formatRelativeDay(statement.due_date).toLowerCase() : ''}
+          {statement.statement_date && <span className="text-muted-foreground"> · {formatDayMonth(statement.statement_date)} statement</span>}
+        </p>
+      ) : (
+        <p className="text-muted-foreground">
+          Nothing billed right now
+          {statement.next_statement_date ? ` · next statement ${formatDayMonth(statement.next_statement_date)}` : ''}
+        </p>
+      )}
+      {statement.unbilled_spend > 0 && (
+        <p className="text-muted-foreground">
+          <span className="tabular-nums">{formatMoney(statement.unbilled_spend, statement.currency)}</span> spent since - bills next cycle
+        </p>
+      )}
+    </div>
+  );
+}
+
 function AccountDialog({ open, onOpenChange, account }: { open: boolean; onOpenChange: (o: boolean) => void; account?: Account }) {
   const { data: allAccounts = [] } = useAccounts();
   const [name, setName] = useState(account?.name || '');
@@ -114,7 +158,8 @@ function AccountDialog({ open, onOpenChange, account }: { open: boolean; onOpenC
   const [opening, setOpening] = useState(account ? String(account.opening_balance) : '0');
   const [currentBalance, setCurrentBalance] = useState('0');
   const [creditLimit, setCreditLimit] = useState('');
-  const [billingDay, setBillingDay] = useState('');
+  const [statementDay, setStatementDay] = useState('');
+  const [dueDay, setDueDay] = useState('');
   const [autopayEnabled, setAutopayEnabled] = useState(false);
   const [autopayAccountId, setAutopayAccountId] = useState('');
   const createAccount = useCreateAccount();
@@ -128,21 +173,29 @@ function AccountDialog({ open, onOpenChange, account }: { open: boolean; onOpenC
       setOpening(String(account.opening_balance));
       setCurrentBalance(String(account.type === 'credit' ? -account.current_balance : account.current_balance));
       setCreditLimit(account.credit_limit != null ? String(account.credit_limit) : '');
-      setBillingDay(account.billing_day != null ? String(account.billing_day) : '');
+      setStatementDay(account.statement_day != null ? String(account.statement_day) : '');
+      setDueDay(account.due_day != null ? String(account.due_day) : '');
       setAutopayEnabled(account.autopay_enabled);
       setAutopayAccountId(account.autopay_account_id || '');
     } else {
       setName(''); setType('bank'); setOpening('0'); setCurrentBalance('0');
-      setCreditLimit(''); setBillingDay(''); setAutopayEnabled(false); setAutopayAccountId('');
+      setCreditLimit(''); setStatementDay(''); setDueDay(''); setAutopayEnabled(false); setAutopayAccountId('');
     }
   }, [open, account]);
 
   const save = async () => {
     if (!name) { toast.error('Name is required'); return; }
     if (type === 'credit' && autopayEnabled && !autopayAccountId) { toast.error('Pick an account to autopay from'); return; }
+    const outOfRange = (v: string) => v !== '' && (Number(v) < 1 || Number(v) > 28);
+    if (type === 'credit' && (outOfRange(statementDay) || outOfRange(dueDay))) {
+      toast.error('Statement and due days must be between 1 and 28');
+      return;
+    }
+    if (type === 'credit' && autopayEnabled && !dueDay) { toast.error('Autopay needs a due day to pay on'); return; }
     const creditFields = type === 'credit' ? {
       credit_limit: creditLimit ? Number(creditLimit) : null,
-      billing_day: billingDay ? Number(billingDay) : null,
+      statement_day: statementDay ? Number(statementDay) : null,
+      due_day: dueDay ? Number(dueDay) : null,
       autopay_enabled: autopayEnabled,
       autopay_account_id: autopayEnabled ? autopayAccountId : null,
     } : {};
@@ -201,20 +254,28 @@ function AccountDialog({ open, onOpenChange, account }: { open: boolean; onOpenC
           )}
           {type === 'credit' && (
             <div className="space-y-4 rounded-lg border border-border p-3">
+              <div>
+                <Label>Credit limit</Label>
+                <Input type="number" value={creditLimit} onChange={(e) => setCreditLimit(e.target.value)} placeholder="100000" />
+              </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <Label>Credit limit</Label>
-                  <Input type="number" value={creditLimit} onChange={(e) => setCreditLimit(e.target.value)} placeholder="100000" />
+                  <Label>Statement (billing) day</Label>
+                  <Input type="number" min={1} max={28} value={statementDay} onChange={(e) => setStatementDay(e.target.value)} placeholder="1-28" />
                 </div>
                 <div>
-                  <Label>Bill due day</Label>
-                  <Input type="number" min={1} max={28} value={billingDay} onChange={(e) => setBillingDay(e.target.value)} placeholder="1-28" />
+                  <Label>Payment due day</Label>
+                  <Input type="number" min={1} max={28} value={dueDay} onChange={(e) => setDueDay(e.target.value)} placeholder="1-28" />
                 </div>
               </div>
+              <p className="text-xs text-muted-foreground">
+                The statement day closes a billing cycle: everything spent since the previous statement day is what's due on the payment due day.
+                Anything swiped after the statement day goes onto next month's bill instead.
+              </p>
               <div className="flex items-center justify-between">
                 <div>
                   <Label htmlFor="card-autopay-toggle">Autopay the bill</Label>
-                  <p className="text-xs text-muted-foreground">Settles the full balance from another account on the due day.</p>
+                  <p className="text-xs text-muted-foreground">Pays the statement amount from another account on the due day - not the unbilled spend that came after it.</p>
                 </div>
                 <Switch id="card-autopay-toggle" checked={autopayEnabled} onCheckedChange={setAutopayEnabled} />
               </div>

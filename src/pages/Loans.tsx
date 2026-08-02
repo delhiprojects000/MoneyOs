@@ -18,7 +18,8 @@ import {
   useBills, useCreateBill, useUpdateBill, useDeleteBill,
 } from '@/hooks/useMoneyData';
 import { useAuth } from '@/contexts/AuthContext';
-import { formatMoney, formatDate, formatRelativeDay } from '@/lib/format';
+import { formatMoney, formatDate, formatRelativeDay, formatCyclePeriod } from '@/lib/format';
+import { daysUntil } from '@/lib/upcoming';
 import { Plus, Landmark, CheckCircle2, Pencil, Trash2, Repeat, Zap } from 'lucide-react';
 import { toast } from 'sonner';
 import { preventAccidentalDialogClose, cn } from '@/lib/utils';
@@ -317,6 +318,9 @@ function RecurringTab() {
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<RecurringRule | undefined>(undefined);
   const [deleting, setDeleting] = useState<RecurringRule | undefined>(undefined);
+  // Which row is mid-post, so only that row's button locks up (one shared
+  // mutation would otherwise disable every row's).
+  const [posting, setPosting] = useState<string | undefined>(undefined);
 
   const monthlyTotal = rules
     .filter((r) => r.is_active)
@@ -331,12 +335,19 @@ function RecurringTab() {
     }
   };
 
-  const markPaid = async (id: string) => {
+  // The cycle being settled travels with the request: if this row was already
+  // posted (a double-click, or a stale tab), the server rejects the stale
+  // period with a 409 instead of quietly posting next month's payment too.
+  const markPaid = async (rule: RecurringRule) => {
+    if (posting) return;
+    setPosting(rule.id);
     try {
-      await postRule.mutateAsync(id);
-      toast.success('Posted to transactions - next cycle scheduled');
+      await postRule.mutateAsync({ id: rule.id, period: rule.next_run_date });
+      toast.success(`Marked paid for ${formatCyclePeriod(rule.frequency, rule.next_run_date)} - next cycle scheduled`);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Something went wrong');
+    } finally {
+      setPosting(undefined);
     }
   };
 
@@ -363,16 +374,39 @@ function RecurringTab() {
         <Button size="sm" onClick={() => { setEditing(undefined); setOpen(true); }}><Plus className="mr-2 h-4 w-4" />Add</Button>
       </CardHeader>
       <CardContent className="space-y-1">
-        {rules.map((r) => (
+        {rules.map((r) => {
+          const overdue = r.is_active && daysUntil(r.next_run_date) < 0;
+          return (
           <div key={r.id} className="flex items-center justify-between gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-muted">
-            <div className={cn('flex min-w-0 items-center gap-2', !r.is_active && 'text-muted-foreground line-through')}>
+            <div className={cn('flex min-w-0 flex-1 items-center gap-2', !r.is_active && 'text-muted-foreground line-through')}>
               <Repeat className="h-3.5 w-3.5 shrink-0" />
-              <span className="truncate">{r.name} - {formatMoney(r.amount, currency)}/{r.frequency}</span>
+              <div className="min-w-0">
+                <p className="truncate">{r.name} - {formatMoney(r.amount, currency)}/{r.frequency}</p>
+                {r.last_posted_period && (
+                  <p className="truncate text-xs text-muted-foreground">Last paid for {formatCyclePeriod(r.frequency, r.last_posted_period)}</p>
+                )}
+              </div>
               {r.auto_post && <Badge variant="secondary" className="shrink-0 gap-1"><Zap className="h-2.5 w-2.5" />Autopay</Badge>}
+            </div>
+            {/* Which cycle the next payment covers - "Aug 2026", not just a
+                date - so it's obvious whether a click already registered. */}
+            <div className="w-32 shrink-0 text-right sm:w-36">
+              {r.is_active ? (
+                <>
+                  <p className="truncate text-xs text-muted-foreground">
+                    Due for <span className={cn('font-medium text-foreground', overdue && 'text-destructive')}>{formatCyclePeriod(r.frequency, r.next_run_date)}</span>
+                  </p>
+                  <p className={cn('truncate text-[11px] text-muted-foreground', overdue && 'text-destructive')}>{formatRelativeDay(r.next_run_date)}</p>
+                </>
+              ) : (
+                <p className="text-xs text-muted-foreground">Paused</p>
+              )}
             </div>
             <div className="flex shrink-0 items-center gap-1">
               {r.is_active && !r.auto_post && (
-                <Button size="sm" variant="outline" onClick={() => markPaid(r.id)} disabled={postRule.isPending}>Mark paid</Button>
+                <Button size="sm" variant="outline" onClick={() => markPaid(r)} disabled={!!posting}>
+                  {posting === r.id ? 'Posting...' : 'Mark paid'}
+                </Button>
               )}
               <Button size="sm" variant="outline" onClick={() => toggleActive(r.id, r.is_active)}>{r.is_active ? 'Pause' : 'Resume'}</Button>
               <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground" onClick={() => { setEditing(r); setOpen(true); }}>
@@ -383,7 +417,8 @@ function RecurringTab() {
               </Button>
             </div>
           </div>
-        ))}
+          );
+        })}
         {rules.length === 0 && <p className="text-sm text-muted-foreground">No subscriptions tracked yet.</p>}
       </CardContent>
 

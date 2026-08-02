@@ -30,6 +30,13 @@ function jsonCall(path: string, method: string, body?: unknown) {
   return call(path, { method, headers: { 'Content-Type': 'application/json' }, ...(body !== undefined ? { body: JSON.stringify(body) } : {}) });
 }
 
+// Minutes east of UTC (330 for IST). Every date bucket the backend computes -
+// "today", "this month", a card's statement cycle - is a calendar date in the
+// user's own timezone, but occurred_at is an absolute timestamp and the
+// backend container runs on UTC. Sending this with anything date-bucketed is
+// what keeps a 1am expense inside today instead of yesterday.
+export const tzOffsetMinutes = () => -new Date().getTimezoneOffset();
+
 // --- Types ------------------------------------------------------------
 
 export type AccountType = 'cash' | 'bank' | 'card' | 'upi' | 'wallet' | 'savings' | 'credit';
@@ -67,12 +74,16 @@ export interface Account {
   // Credit card terms - only meaningful when type === 'credit'. Spending on
   // a credit account drives current_balance negative through the normal
   // expense flow (see backend applyBalanceEffect) - these fields just
-  // describe the card's own limit/due-day/autopay behavior on top of that.
+  // describe the card's own limit/statement-cycle/autopay behavior on top of
+  // that. statement_day closes a cycle, due_day is when that closed cycle has
+  // to be paid; see CreditCardStatement below.
   credit_limit: number | null;
-  billing_day: number | null;
+  statement_day: number | null;
+  due_day: number | null;
   autopay_enabled: boolean;
   autopay_account_id: string | null;
   autopay_last_run: string | null;
+  last_settled_statement: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -142,6 +153,9 @@ export interface RecurringRule {
   is_active: boolean;
   notes: string | null;
   last_run_date: string | null;
+  // The cycle (a past next_run_date) this rule was last posted for - "paid
+  // for August", as opposed to last_run_date's "posted on the 2nd".
+  last_posted_period: string | null;
 }
 
 export interface Loan {
@@ -213,8 +227,35 @@ export interface Bill {
   notes: string | null;
 }
 
+// One credit card's current billing cycle, computed server-side (see
+// "Credit card statement cycles" in the edge function). The statement is
+// what's actually due on due_date; unbilled_spend is everything swiped after
+// the statement closed, which belongs to next month's bill instead.
+export interface CreditCardStatement {
+  account_id: string;
+  name: string;
+  currency: string;
+  statement_day: number | null;
+  due_day: number | null;
+  period_start: string | null;
+  statement_date: string | null;
+  due_date: string | null;
+  next_statement_date: string | null;
+  next_due_date: string | null;
+  statement_balance: number;
+  amount_due: number;
+  cycle_spend: number;
+  unbilled_spend: number;
+  paid_since_statement: number;
+  current_balance: number;
+  credit_limit: number | null;
+  owed: number;
+  autopay_enabled: boolean;
+  settled: boolean;
+}
+
 export interface ReportsSummary {
-  range: { range: string; start: string; end: string };
+  range: { range: string; start: string; end: string; granularity: 'day' | 'month' };
   totals: { income: number; expense: number; net: number; group_expense_total: number };
   by_category: Record<string, number>;
   trend: Array<{ date: string; income: number; expense: number }>;
@@ -286,14 +327,24 @@ export const recurringRules = {
   remove: (id: string) => dataDelete('recurring_rules', id),
   // Manual "mark this cycle paid" - posts a transaction for the rule's
   // current next_run_date and advances the schedule by one interval.
-  post: (id: string): Promise<{ data: RecurringRule; transaction: Transaction }> => jsonCall(`/recurring_rules/${id}/post`, 'POST'),
+  // `period` is the cycle the caller believes it's settling (the
+  // next_run_date it was showing); the server rejects it with a 409 if the
+  // rule has already moved past it, so a double-click can't post two cycles.
+  post: (id: string, period?: string): Promise<{ data: RecurringRule; transaction: Transaction }> =>
+    jsonCall(`/recurring_rules/${id}/post`, 'POST', { period }),
+};
+
+export const creditCards = {
+  statements: (): Promise<CreditCardStatement[]> =>
+    call(`/credit-cards/statements?tz_offset=${tzOffsetMinutes()}`).then((r) => r.data),
 };
 
 // Catch-up pass for auto_post recurring rules and credit-card autopay -
 // there's no cron on the box, so this is called once per session on app
 // load instead (see useProcessDue in useMoneyData.ts).
 export const processDue = {
-  run: (): Promise<{ posted_recurring: Transaction[]; autopay_settled: Transaction[] }> => jsonCall('/process-due', 'POST'),
+  run: (): Promise<{ posted_recurring: Transaction[]; autopay_settled: Transaction[] }> =>
+    jsonCall(`/process-due?tz_offset=${tzOffsetMinutes()}`, 'POST'),
 };
 
 export const budgets = {
@@ -382,9 +433,13 @@ export const loans = {
 
 // --- Reports -----------------------------------------------------------
 
+// The key by_category uses for expenses with no category set - they're real
+// spend and belong in the chart, just under their own bucket.
+export const UNCATEGORIZED_KEY = 'uncategorized';
+
 export const reports = {
   summary: (range: 'day' | 'week' | 'month' | 'year' | 'custom' = 'month', start?: string, end?: string): Promise<ReportsSummary> => {
-    const usp = new URLSearchParams({ range });
+    const usp = new URLSearchParams({ range, tz_offset: String(tzOffsetMinutes()) });
     if (start) usp.set('start', start);
     if (end) usp.set('end', end);
     return call(`/reports/summary?${usp.toString()}`);

@@ -2,7 +2,8 @@
 // upcoming-dues card and the NotificationsBell, so a loan installment,
 // subscription, standalone bill, or credit card bill only has one place that
 // decides its due date/amount/overdue-ness instead of two drifting copies.
-import type { Account, Bill, Loan, LoanPayment, RecurringRule } from './api';
+import type { Bill, CreditCardStatement, Loan, LoanPayment, RecurringRule } from './api';
+import { formatCyclePeriod } from './format';
 
 export type UpcomingKind = 'loan' | 'bill' | 'recurring' | 'credit_card';
 
@@ -10,6 +11,8 @@ export interface UpcomingItem {
   key: string;
   kind: UpcomingKind;
   label: string;
+  /** Which cycle/month this covers, when that isn't obvious from the label. */
+  period?: string;
   amount: number;
   dueDate: string; // YYYY-MM-DD
   overdue: boolean;
@@ -18,27 +21,19 @@ export interface UpcomingItem {
 
 export function daysUntil(dateStr: string): number {
   const today = new Date(); today.setHours(0, 0, 0, 0);
-  const target = new Date(dateStr); target.setHours(0, 0, 0, 0);
+  const [y, m, d] = dateStr.slice(0, 10).split('-').map(Number);
+  const target = new Date(y, m - 1, d);
   return Math.round((target.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
 }
 
-// A card with any amount owed always has an outstanding bill for *this*
-// billing cycle - due this month's billing_day, whether that's still ahead
-// (upcoming) or already past (overdue). There's no "push to next month"
-// case here: once it's paid off (owed <= 0), the caller excludes it entirely
-// rather than this function guessing at a future cycle.
-function creditCardDueDate(billingDay: number, from = new Date()): string {
-  return new Date(from.getFullYear(), from.getMonth(), billingDay).toISOString().slice(0, 10);
-}
-
 export function buildUpcomingItems(params: {
-  accounts: Account[];
   bills: Bill[];
   loans: Loan[];
   pendingPayments: LoanPayment[];
   rules: RecurringRule[];
+  cardStatements: CreditCardStatement[];
 }): UpcomingItem[] {
-  const { accounts, bills, loans, pendingPayments, rules } = params;
+  const { bills, loans, pendingPayments, rules, cardStatements } = params;
   const out: UpcomingItem[] = [];
 
   for (const b of bills) {
@@ -61,15 +56,23 @@ export function buildUpcomingItems(params: {
 
   for (const r of rules) {
     if (!r.is_active) continue;
-    out.push({ key: `rule-${r.id}`, kind: 'recurring', label: r.name, amount: r.amount, dueDate: r.next_run_date, overdue: daysUntil(r.next_run_date) < 0, href: '/loans' });
+    out.push({
+      key: `rule-${r.id}`, kind: 'recurring', label: r.name,
+      period: formatCyclePeriod(r.frequency, r.next_run_date),
+      amount: r.amount, dueDate: r.next_run_date, overdue: daysUntil(r.next_run_date) < 0, href: '/loans',
+    });
   }
 
-  for (const a of accounts) {
-    if (a.type !== 'credit' || a.is_archived || !a.billing_day) continue;
-    const owed = Math.max(0, -a.current_balance);
-    if (owed <= 0) continue;
-    const dueDate = creditCardDueDate(a.billing_day);
-    out.push({ key: `card-${a.id}`, kind: 'credit_card', label: `${a.name} bill`, amount: owed, dueDate, overdue: daysUntil(dueDate) < 0, href: '/accounts' });
+  // Only the *closed* statement is a due - spend made after the statement
+  // date sits in unbilled_spend and isn't owed until next cycle's due date,
+  // even though it's already on the card's balance.
+  for (const s of cardStatements) {
+    if (s.amount_due <= 0 || !s.due_date) continue;
+    out.push({
+      key: `card-${s.account_id}`, kind: 'credit_card', label: `${s.name} bill`,
+      period: s.statement_date ? `${formatCyclePeriod('monthly', s.statement_date)} statement` : undefined,
+      amount: s.amount_due, dueDate: s.due_date, overdue: daysUntil(s.due_date) < 0, href: '/accounts',
+    });
   }
 
   return out.sort((x, y) => x.dueDate.localeCompare(y.dueDate));

@@ -3,11 +3,15 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useCategories, useReportsSummary } from '@/hooks/useMoneyData';
 import { useAuth } from '@/contexts/AuthContext';
-import { formatMoney } from '@/lib/format';
+import { formatMoney, formatDayMonth } from '@/lib/format';
 import { ReportsSkeleton } from '@/components/skeletons/pages';
+import { UNCATEGORIZED_KEY } from '@/lib/api';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
 
 const PIE_COLORS = ['#059669', '#0284c7', '#ea580c', '#7c3aed', '#e11d48', '#d97706', '#0d9488', '#db2777', '#84cc16', '#64748b'];
+// Uncategorised spend always reads as the same neutral grey rather than
+// borrowing a category's colour from the palette.
+const UNCATEGORIZED_COLOR = '#94a3b8';
 
 export default function Reports() {
   const { user } = useAuth();
@@ -16,10 +20,22 @@ export default function Reports() {
   const { data: summary, isLoading } = useReportsSummary(range);
   const { data: categories = [] } = useCategories('expense');
 
+  // Longer ranges come back bucketed by month instead of by day, so the axis
+  // has to label them differently ("Aug" vs "14").
+  const byMonth = summary?.range.granularity === 'month';
+  const formatBucket = (d: string) => (byMonth ? formatDayMonth(`${d}-01`).replace(/^\d+\s/, '') : String(Number(d.slice(8))));
+
   const categoryName = Object.fromEntries(categories.map((c) => [c.id, c.name]));
   const categoryData = Object.entries(summary?.by_category ?? {})
-    .map(([id, amount]) => ({ name: categoryName[id] || 'Other', value: amount }))
-    .sort((a, b) => b.value - a.value);
+    .map(([id, amount]) => ({
+      id,
+      name: id === UNCATEGORIZED_KEY ? 'Uncategorized' : categoryName[id] || 'Other',
+      value: amount,
+    }))
+    .sort((a, b) => b.value - a.value)
+    .map((c, i) => ({ ...c, color: c.id === UNCATEGORIZED_KEY ? UNCATEGORIZED_COLOR : PIE_COLORS[i % PIE_COLORS.length] }));
+
+  const uncategorized = summary?.by_category?.[UNCATEGORIZED_KEY] ?? 0;
 
   return (
     <div className="space-y-6">
@@ -54,7 +70,7 @@ export default function Reports() {
             {summary && summary.trend.length > 0 ? (
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={summary.trend}>
-                  <XAxis dataKey="date" tickFormatter={(d) => d.slice(8)} tick={{ fontSize: 11 }} axisLine={false} tickLine={false} />
+                  <XAxis dataKey="date" tickFormatter={formatBucket} tick={{ fontSize: 11 }} axisLine={false} tickLine={false} />
                   <YAxis tick={{ fontSize: 11 }} axisLine={false} tickLine={false} width={40} />
                   <Tooltip formatter={(v: number) => formatMoney(v, currency)} contentStyle={{ background: 'hsl(var(--card))', border: '1px solid hsl(var(--border))', borderRadius: 8, fontSize: 12 }} />
                   <Bar dataKey="income" fill="hsl(var(--success))" radius={[4, 4, 0, 0]} />
@@ -75,7 +91,7 @@ export default function Reports() {
                       degenerate sliver instead of a full ring - only pad when there's
                       more than one category to actually separate. */}
                   <Pie data={categoryData} dataKey="value" nameKey="name" cx="50%" cy="50%" innerRadius={55} outerRadius={90} paddingAngle={categoryData.length > 1 ? 2 : 0}>
-                    {categoryData.map((_, i) => <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />)}
+                    {categoryData.map((c) => <Cell key={c.id} fill={c.color} />)}
                   </Pie>
                   <Tooltip formatter={(v: number) => formatMoney(v, currency)} contentStyle={{ background: 'hsl(var(--card))', border: '1px solid hsl(var(--border))', borderRadius: 8, fontSize: 12 }} />
                 </PieChart>
@@ -88,16 +104,21 @@ export default function Reports() {
       <Card>
         <CardHeader><CardTitle className="text-base">Category breakdown</CardTitle></CardHeader>
         <CardContent className="space-y-2">
-          {categoryData.map((c, i) => (
-            <div key={c.name} className="flex items-center justify-between text-sm">
+          {categoryData.map((c) => (
+            <div key={c.id} className="flex items-center justify-between text-sm">
               <div className="flex items-center gap-2">
-                <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: PIE_COLORS[i % PIE_COLORS.length] }} />
+                <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: c.color }} />
                 {c.name}
               </div>
               <span className="tabular-nums font-medium">{formatMoney(c.value, currency)}</span>
             </div>
           ))}
           {categoryData.length === 0 && <p className="text-sm text-muted-foreground">Nothing spent in this period yet.</p>}
+          {uncategorized > 0 && (
+            <p className="pt-1 text-xs text-muted-foreground">
+              {formatMoney(uncategorized, currency)} of this has no category yet - set one on those transactions (or on the subscription that posts them) to split it out.
+            </p>
+          )}
         </CardContent>
       </Card>
 

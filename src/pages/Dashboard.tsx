@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { useAccounts, useTransactions, useReportsSummary, useLoans, usePendingLoanPayments, useBills, useRecurringRules } from '@/hooks/useMoneyData';
+import { useAccounts, useTransactions, useReportsSummary, useLoans, usePendingLoanPayments, useBills, useRecurringRules, useCreditCardStatements } from '@/hooks/useMoneyData';
 import { useAuth } from '@/contexts/AuthContext';
 import { formatMoney, formatRelativeDay } from '@/lib/format';
 import { ArrowDownRight, ArrowUpRight, Wallet, TrendingUp, TrendingDown, AlertCircle, Landmark, Repeat, CreditCard } from 'lucide-react';
@@ -34,6 +34,7 @@ export default function Dashboard() {
   const { data: pendingPayments = [] } = usePendingLoanPayments();
   const { data: bills = [] } = useBills();
   const { data: rules = [] } = useRecurringRules();
+  const { data: cardStatements = [] } = useCreditCardStatements();
   const [editingTx, setEditingTx] = useState<Transaction | undefined>(undefined);
 
   // Credit card current_balance is negative when owed - summing it into
@@ -48,9 +49,9 @@ export default function Dashboard() {
   // bill reminders, subscriptions/recurring payments, and credit card bills -
   // merged into one list and windowed to the next 15 days.
   const upcomingDues = useMemo(() => {
-    const items = buildUpcomingItems({ accounts, bills, loans, pendingPayments, rules });
+    const items = buildUpcomingItems({ bills, loans, pendingPayments, rules, cardStatements });
     return items.filter((i) => daysUntil(i.dueDate) <= UPCOMING_WINDOW_DAYS);
-  }, [accounts, bills, loans, pendingPayments, rules]);
+  }, [bills, loans, pendingPayments, rules, cardStatements]);
 
   if (accountsLoading || summaryLoading) return <DashboardSkeleton />;
 
@@ -118,7 +119,10 @@ export default function Dashboard() {
                 <Link key={d.key} to={d.href} className="flex items-center justify-between gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-muted">
                   <div className="flex min-w-0 items-center gap-2">
                     <Icon className={`h-4 w-4 shrink-0 ${d.overdue ? 'text-destructive' : 'text-warning'}`} />
-                    <span className="truncate">{d.label}</span>
+                    <div className="min-w-0">
+                      <p className="truncate">{d.label}</p>
+                      {d.period && <p className="truncate text-xs text-muted-foreground">for {d.period}</p>}
+                    </div>
                   </div>
                   <div className="shrink-0 text-right">
                     <p className="font-medium tabular-nums">{formatMoney(d.amount, currency)}</p>

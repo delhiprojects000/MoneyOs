@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
-  accounts, categories, paymentMethods, transactions, loans, budgets, goals, bills, recurringRules, reports, processDue,
+  accounts, categories, paymentMethods, transactions, loans, budgets, goals, bills, recurringRules, reports, processDue, creditCards,
   type CreateTransactionInput, type CreateLoanInput, type Account, type Category, type PaymentMethod, type Budget, type Goal, type Bill, type RecurringRule,
 } from '@/lib/api';
 
@@ -14,11 +14,21 @@ function useMoneyMutationInvalidation() {
     qc.invalidateQueries({ queryKey: ['transactions'] });
     qc.invalidateQueries({ queryKey: ['reports'] });
     qc.invalidateQueries({ queryKey: ['loans'] });
+    // Card statements are derived from balances + transactions, so any money
+    // movement can change what's billed or still unbilled on a card.
+    qc.invalidateQueries({ queryKey: ['credit-card-statements'] });
   };
 }
 
 export function useAccounts() {
   return useQuery({ queryKey: ['accounts'], queryFn: accounts.list });
+}
+
+// Per-card statement cycle (what's billed, what's still unbilled, when it's
+// due) - computed server-side so the dashboard, notifications bell, and
+// accounts page can't drift apart on the same card's bill.
+export function useCreditCardStatements() {
+  return useQuery({ queryKey: ['credit-card-statements'], queryFn: creditCards.statements });
 }
 
 export function useCategories(kind?: 'expense' | 'income') {
@@ -93,7 +103,10 @@ export function useUpdateAccount() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: ({ id, payload }: { id: string; payload: Partial<Account> }) => accounts.update(id, payload),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['accounts'] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['accounts'] });
+      qc.invalidateQueries({ queryKey: ['credit-card-statements'] });
+    },
   });
 }
 
@@ -302,11 +315,15 @@ export function usePostRecurringRule() {
   const invalidate = useMoneyMutationInvalidation();
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (id: string) => recurringRules.post(id),
+    // `period` is the cycle the UI was showing as due - the server rejects it
+    // if the rule already advanced past it, which is what stops a second
+    // click from posting next month's payment too.
+    mutationFn: ({ id, period }: { id: string; period?: string }) => recurringRules.post(id, period),
     onSuccess: () => {
       invalidate();
       qc.invalidateQueries({ queryKey: ['recurring_rules'] });
     },
+    onError: () => qc.invalidateQueries({ queryKey: ['recurring_rules'] }),
   });
 }
 

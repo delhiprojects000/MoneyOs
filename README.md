@@ -15,7 +15,8 @@ A personal finance manager: track every expense and income, budget by category, 
 - Multiple wallets (cash, bank, savings, card, credit, UPI) with running balances, full edit, and archive
 - Transfers between accounts
 - Every transaction automatically adjusts the right account's balance
-- **Credit cards**: set a credit limit and bill due day; card spending shows as "owed" against the limit instead of a plain balance. Turn on autopay to settle the full bill automatically from another account on the due day - if it's not resolved, the reminders bell flags it 2 days out
+- **Credit cards**: set a credit limit, a statement (billing) day, and a payment due day; card spending shows as "owed" against the limit instead of a plain balance
+- **Real statement cycles**: everything spent between one statement day and the next is that cycle's bill, due on the due day. Anything swiped after the statement day is shown separately as unbilled and rolls into next month's bill instead of being demanded early. Autopay pays the statement amount on its due date - if it's not resolved, the reminders bell flags it 2 days out
 
 ### Transactions
 - Expense / income / transfer, with category, payment method, date **and time**, tags, notes, and a receipt photo
@@ -38,10 +39,13 @@ A personal finance manager: track every expense and income, budget by category, 
 ### Subscriptions & recurring expenses
 - Track subscriptions and repeating expenses (rent, etc.) with full edit/delete
 - Turn on autopay to have a cycle post itself as a transaction and debit the account automatically when due - no manual step
-- Without autopay, "Mark paid" posts the transaction for the current cycle and schedules the next one
+- Every row says which cycle it's due for ("Due for Aug 2026") and which one it was last paid for, so a "Mark paid" that already registered is obvious
+- Without autopay, "Mark paid" posts the transaction for the current cycle and schedules the next one - clicking it twice can't post two months, the second click is rejected
 
 ### Reports
 - Day / week / month / year views: income vs. expense trend, spend-by-category donut, category breakdown, budget-vs-actual
+- Every expense counts, including card spend and subscription-posted rent; anything without a category is shown as its own "Uncategorized" slice rather than dropped, so the donut always adds up to the expense total
+- Day buckets follow your own timezone, so a late-night expense stays on the day you made it
 
 ### Bill reminders
 - Standalone due-date reminders separate from EMIs, with edit, delete, and a one-tap "mark paid"
