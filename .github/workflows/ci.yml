@@ -1,0 +1,73 @@
+name: CI
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+    branches: [master, main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Lint, typecheck, build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Typecheck
+        run: npx tsc --noEmit
+
+      - name: Build
+        run: npm run build
+        env:
+          # The build only reads this to bake the API base URL into the bundle.
+          # It is a public value; the real one lives in the host's env.
+          VITE_SUPABASE_URL: https://example.invalid
+
+      - name: Check edge function parses
+        run: |
+          node -e "
+          const ts = require('typescript');
+          const fs = require('fs');
+          const path = 'supabase/functions/moneyos/index.ts';
+          const sf = ts.createSourceFile(path, fs.readFileSync(path, 'utf8'), ts.ScriptTarget.ESNext, true, ts.ScriptKind.TS);
+          const errors = sf.parseDiagnostics || [];
+          if (errors.length) { console.error(errors.slice(0, 10)); process.exit(1); }
+          console.log('edge function parses cleanly');
+          "
+
+  audit:
+    name: Dependency audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      # Advisory only: a new upstream advisory should not turn every PR red.
+      - run: npm audit --omit=dev || true
+      - name: Fail on critical advisories
+        run: |
+          count=$(npm audit --omit=dev --json | node -e "
+            let s=''; process.stdin.on('data',d=>s+=d).on('end',()=>{
+              const v = JSON.parse(s).metadata?.vulnerabilities ?? {};
+              console.log(v.critical ?? 0);
+            });
+          ")
+          echo "critical advisories: $count"
+          test "$count" -eq 0
