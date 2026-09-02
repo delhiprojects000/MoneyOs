@@ -18,6 +18,7 @@
 <img alt="PostgreSQL" src="https://img.shields.io/badge/PostgreSQL-4169E1?style=for-the-badge&logo=postgresql&logoColor=white" loading="lazy">
 <img alt="Deno" src="https://img.shields.io/badge/Deno-000000?style=for-the-badge&logo=deno&logoColor=white" loading="lazy">
 <img alt="Recharts" src="https://img.shields.io/badge/Recharts-22B5BF?style=for-the-badge&logo=chartdotjs&logoColor=white" loading="lazy">
+<img alt="MIT License" src="https://img.shields.io/badge/License-MIT-A31F34?style=for-the-badge" loading="lazy">
 
 <br><br>
 
@@ -315,6 +316,4 @@ Conventions: branch off `master`, single-line commit messages, no em dashes anyw
 
 ## License
 
-This repository does not currently carry a license file, which means default copyright applies and nobody else has the right to use, copy or modify it.
-
-<!-- TODO: license - if this is meant to be open source, add a LICENSE file (MIT is the usual choice for these projects) and replace this paragraph with the one-line summary. -->
+[MIT](./LICENSE) © Dileep Adari

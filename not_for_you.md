@@ -145,4 +145,3 @@ This is the dumping ground for small local decisions, oddities noticed while rea
 - Decide whether `activity_log` gets finished or dropped.
 - Derive `--primary-foreground` from perceived lightness so a pale custom accent stays readable.
 - Tighten the upload filename regex so directory safety does not depend on the id prefix.
-- Add a LICENSE file, or decide deliberately that this stays all-rights-reserved.
