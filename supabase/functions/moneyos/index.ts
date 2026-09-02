@@ -1,28 +1,16 @@
-// MoneyOS backend routes.
-//
-// DEPLOYMENT NOTE: this file is written as a self-contained module, but the
-// Oracle VM's edge-runtime container runs in single "main-service" mode
-// (`command: start --main-service /home/deno/functions`, see
-// docker-compose.yml) - ONE index.ts at
-// /mnt/storage/supabase/functions/index.ts handles every /functions/v1/*
-// request for every app on the box (it already serves design-andhra-pradesh's
-// /upload and /hello routes). There is no per-directory-function deploy like
-// portfolio/workos-personal use on real Supabase Cloud. So this file's
-// `moneyosRouter` is spliced into that shared entrypoint behind an
-// `if (url.pathname.startsWith("/moneyos/"))` branch - see
-// DEVDOC.md "Deploying the backend" for the exact procedure. Treat this file
-// as the source of truth for MoneyOS's own logic; the shared file on the VM
-// additionally contains design-andhra-pradesh's unrelated /upload + /hello
-// handlers, untouched.
-//
-// Auth: hand-rolled username/password + JWT (bcrypt + HS256 via Web Crypto),
-// same shape as sibling portfolio/workos-personal apps - no Supabase Auth
-// dependency. Unlike those two (which use a real managed Supabase project),
-// this talks directly to the box's own PostgREST over the internal Docker
-// network (http://rest:3000) using the genuine SERVICE_ROLE_KEY to bypass
-// RLS, since supabase-js would be unnecessary bundle weight on a
-// memory-constrained (~950Mi) shared container - plain fetch() against
-// PostgREST's REST API is enough for what this needs.
+/**
+ * MoneyOS backend: auth, the data gateway, and every route that touches money.
+ *
+ * This file is the source of truth for MoneyOS's own logic. It is spliced into
+ * the host's shared edge-function entrypoint at deploy time rather than
+ * deployed as a standalone function; see DEVDOC "Deployment" for why and how.
+ *
+ * Auth is hand-rolled (bcrypt + HS256 via Web Crypto) with no dependency on
+ * Supabase Auth, and data access goes straight to PostgREST with the service
+ * role, so all authorisation is enforced here. See DEVDOC "Auth model".
+ *
+ * @module api
+ */
 
 import bcrypt from "npm:bcryptjs@2";
 
@@ -143,14 +131,10 @@ const qs = (params: Record<string, string | number | boolean | undefined>) => {
 };
 
 // --- Local-calendar / timezone helpers -------------------------------------
-// Every "day", "this month", "this statement cycle" bucket in this app is a
-// calendar date in the *user's* timezone, but occurred_at is an absolute
-// timestamptz and this container's clock is UTC. Without an explicit offset a
-// 1am IST expense lands on the previous UTC day - it drops out of "today"
-// entirely and shifts a day in the trend chart. Clients send `tz_offset` in
-// minutes east of UTC (i.e. -new Date().getTimezoneOffset(), 330 for IST);
-// everything below converts between instant and local calendar date through
-// that offset instead of trusting the server's own zone.
+// Every "day", "this month" and "this statement cycle" bucket is a calendar
+// date in the user's zone, but occurred_at is an absolute timestamptz and this
+// container runs on UTC. Clients send tz_offset in minutes east of UTC and
+// everything below converts through it rather than trusting the server clock.
 
 function tzOffsetOf(params: URLSearchParams): number {
   const raw = Number(params.get("tz_offset"));
@@ -203,8 +187,13 @@ async function handleSignup(req: Request): Promise<Response> {
   if (!email || !username || !password) return json({ error: "Missing email/username/password" }, 400);
   if (password.length < 8) return json({ error: "Password must be at least 8 characters" }, 400);
 
-  const existing = await pg(`/users${qs({ or: `(email.eq.${email},username.eq.${username})`, select: "id" })}`);
-  if (Array.isArray(existing) && existing.length > 0) return json({ error: "Email or username already taken" }, 409);
+  const [byEmail, byUsername] = await Promise.all([
+    pg(`/users${qs({ email: `eq.${email}`, select: "id" })}`),
+    pg(`/users${qs({ username: `eq.${username}`, select: "id" })}`),
+  ]);
+  if ((byEmail?.length ?? 0) > 0 || (byUsername?.length ?? 0) > 0) {
+    return json({ error: "Email or username already taken" }, 409);
+  }
 
   const password_hash = await bcrypt.hash(password, 10);
   const user = await pg(`/users`, {
@@ -228,8 +217,14 @@ async function handleLogin(req: Request): Promise<Response> {
   const { username, password } = await req.json().catch(() => ({}));
   if (!username || !password) return json({ error: "Missing username/password" }, 400);
 
-  const rows = await pg(`/users${qs({ or: `(email.eq.${username},username.eq.${username})`, select: "id,username,password_hash,is_active,display_name,default_currency" })}`);
-  const user = Array.isArray(rows) ? rows[0] : null;
+  // Looked up as two scoped queries rather than one `or=(...)` expression:
+  // the identifier is attacker-controlled, and PostgREST parses commas and
+  // parentheses inside an or= filter as syntax, so interpolating it there
+  // lets a crafted username widen the filter to match other rows.
+  const select = "id,username,password_hash,is_active,display_name,default_currency";
+  const rows = await pg(`/users${qs({ username: `eq.${username}`, select })}`);
+  const fallback = (rows?.length ?? 0) === 0 ? await pg(`/users${qs({ email: `eq.${username}`, select })}`) : null;
+  const user = (Array.isArray(rows) && rows[0]) || (Array.isArray(fallback) && fallback[0]) || null;
 
   if (!user || !user.is_active || !(await bcrypt.compare(password, user.password_hash))) {
     return json({ error: "Invalid credentials" }, 401);
@@ -265,6 +260,9 @@ const DATA_TABLES = new Set(["categories", "payment_methods", "accounts", "recur
 // System-seeded rows (user_id null) are shared defaults - a user can see
 // them but never rename/delete the global "Food"/"Google Pay"/etc entries.
 const SYSTEM_PROTECTED_TABLES = new Set(["categories", "payment_methods"]);
+// Query keys a client filter may never set: they control ownership scoping,
+// projection and paging rather than row matching.
+const RESERVED_QUERY_KEYS = new Set(["or", "and", "not", "select", "order", "limit", "offset", "user_id"]);
 
 async function handleData(req: Request, user: AuthedUser): Promise<Response> {
   const body = await req.json().catch(() => ({}));
@@ -288,12 +286,18 @@ async function handleData(req: Request, user: AuthedUser): Promise<Response> {
 
   if (operation === "select") {
     const params: Record<string, string> = { select: "*" };
-    // user_id null rows are system defaults (categories/payment_methods) -
-    // every user should see their own rows plus the shared system ones.
-    params["or"] = `(user_id.eq.${user.sub},user_id.is.null)`;
     if (filters && typeof filters === "object") {
-      for (const [k, v] of Object.entries(filters)) params[k] = typeof v === "string" && /^(eq|neq|gt|gte|lt|lte|like|ilike|in|is)\./.test(v) ? v : `eq.${v}`;
+      for (const [k, v] of Object.entries(filters)) {
+        // Reserved keys would let a caller replace the ownership scoping or
+        // the projection below with one of its own.
+        if (RESERVED_QUERY_KEYS.has(k)) continue;
+        params[k] = typeof v === "string" && /^(eq|neq|gt|gte|lt|lte|like|ilike|in|is)\./.test(v) ? v : `eq.${v}`;
+      }
     }
+    // Applied last so a filter cannot displace it. user_id null rows are
+    // system defaults (categories/payment_methods) - every user should see
+    // their own rows plus the shared system ones.
+    params["or"] = `(user_id.eq.${user.sub},user_id.is.null)`;
     if (order) params["order"] = order;
     if (limit) params["limit"] = String(limit);
     const data = await pg(`/${table}${qs(params)}`);
@@ -340,10 +344,15 @@ async function applyBalanceEffect(tx: TxRow, sign: 1 | -1) {
   }
 }
 
-// A transfer into a credit card is a bill payment. If one is deleted or
-// edited, whatever autopay recorded as "this statement is settled" may no
-// longer be true, so the markers are cleared and the card becomes eligible to
-// be flagged (and autopaid) again.
+/**
+ * Clears a card's "this statement is settled" markers.
+ *
+ * A transfer into a credit card is a bill payment, so editing or deleting one
+ * can make a recorded settlement untrue. Clearing the markers makes the card
+ * eligible to be flagged, and autopaid, again.
+ *
+ * @module credit-cards
+ */
 async function clearCardSettlementMarkers(txs: TxRow[]) {
   const targets = [...new Set(txs.filter((t) => t.type === "transfer" && t.transfer_to_account_id).map((t) => t.transfer_to_account_id!))];
   for (const accountId of targets) {
@@ -394,13 +403,15 @@ async function handleUpdateTransaction(req: Request, id: string, user: AuthedUse
   await applyBalanceEffect(existing as TxRow, -1); // reverse old effect
 
   const merged = { ...existing, ...patch, updated_at: new Date().toISOString() };
+  // Ownership and identity are never client-settable: the row was already
+  // authorised by the scoped read above, and the PATCH below filters on id
+  // alone, so a patched user_id would hand the row to another account.
   delete merged.id;
   delete merged.created_at;
+  merged.user_id = user.sub;
   const updated = await pg(`/transactions${qs({ id: `eq.${id}` })}`, { method: "PATCH", single: true, body: JSON.stringify(merged) });
 
   await applyBalanceEffect(updated as TxRow, 1); // apply new effect
-  // Same reasoning as the delete path: editing a payment into a credit card
-  // changes how much of that statement is actually settled.
   await clearCardSettlementMarkers([existing as TxRow, updated as TxRow]);
   return json({ data: updated });
 }
@@ -412,11 +423,6 @@ async function handleDeleteTransaction(id: string, user: AuthedUser): Promise<Re
 
   await applyBalanceEffect(existing as TxRow, -1);
 
-  // Deleting a payment made *into* a credit card (autopay-generated or a
-  // manual transfer) undoes that settlement - clear the settlement markers so
-  // the card is eligible to be flagged as due again instead of silently
-  // staying "already settled this cycle" even though the balance now shows
-  // it owed.
   await clearCardSettlementMarkers([existing as TxRow]);
 
   await pg(`/transactions${qs({ id: `eq.${id}` })}`, { method: "DELETE" });
@@ -491,10 +497,7 @@ function generateAmortizationSchedule(principal: number, annualRatePct: number, 
   return schedule;
 }
 
-// Loans created without an explicit category default to the seeded "EMI &
-// Loans" system category, so installment payments actually show up in
-// category-based reporting (pie chart, budget-vs-actual) instead of being
-// invisible there.
+/** Falls back to the seeded "EMI & Loans" category so instalments appear in reports. */
 async function defaultLoanCategoryId(): Promise<string | null> {
   const rows = await pg(`/categories${qs({ name: "eq.EMI & Loans", "user_id": "is.null", select: "id", limit: "1" })}`);
   return Array.isArray(rows) && rows.length > 0 ? rows[0].id : null;
@@ -521,13 +524,8 @@ async function handleCreateLoan(req: Request, user: AuthedUser): Promise<Respons
   return json({ data: loan, schedule });
 }
 
-// Editing a loan can mean two very different things: fixing metadata
-// (name/lender/notes - no schedule impact) or fixing the numbers themselves
-// (wrong tenure/EMI/rate/principal/start date). For the latter, regenerate
-// only the *unpaid* tail of the schedule so already-paid installments stay
-// exactly as they were (their transactions already happened) - the new
-// tenure/EMI/rate applies from the next unpaid installment onward, based on
-// whatever principal remains after paid installments.
+// Changing any of these regenerates the unpaid tail of the schedule; paid
+// instalments are left exactly as they were. See DEVDOC "Editing a loan".
 const SCHEDULE_AFFECTING_FIELDS = ["principal_amount", "interest_rate", "tenure_months", "emi_amount", "start_date"];
 
 async function handleUpdateLoan(req: Request, loanId: string, user: AuthedUser): Promise<Response> {
@@ -541,10 +539,8 @@ async function handleUpdateLoan(req: Request, loanId: string, user: AuthedUser):
   const paid = (allPayments as Array<{ status: string; installment_number: number; due_date: string; remaining_balance: string }>).filter((p) => p.status === "paid");
   const lastPaid = paid[paid.length - 1];
 
-  // Once any installment is paid, the schedule is permanently anchored to
-  // that installment's due date (below) - the original start_date no longer
-  // has any effect on it, so accepting a new value here would just leave a
-  // fake "start date" on the loan that misrepresents its real schedule.
+  // Once anything is paid the schedule is anchored to the last paid due date,
+  // so a new start_date would only misrepresent the real schedule.
   if (lastPaid && "start_date" in patch) delete patch.start_date;
 
   const scheduleAffected = SCHEDULE_AFFECTING_FIELDS.some((f) => f in patch && String(patch[f]) !== String(existing[f]));
@@ -552,6 +548,7 @@ async function handleUpdateLoan(req: Request, loanId: string, user: AuthedUser):
   const merged = { ...existing, ...patch, updated_at: new Date().toISOString() };
   delete merged.id;
   delete merged.created_at;
+  merged.user_id = user.sub; // never client-settable, see handleUpdateTransaction
   const updated = await pg(`/loans${qs({ id: `eq.${loanId}` })}`, { method: "PATCH", single: true, body: JSON.stringify(merged) });
 
   let schedule: unknown = undefined;
@@ -635,10 +632,13 @@ interface RecurringRuleRow {
 
 const MONTH_NAMES = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
-// Which period a cycle covers, in the terms the user thinks in: a monthly
-// rent rule due 2026-08-05 is "August's rent", not "the 5 Aug run". Stamped
-// into the posted transaction's description so the ledger says which month
-// a payment settled - the whole point of the "for which month" column.
+/**
+ * Names the period a cycle covers, the way the user thinks of it: rent due
+ * 2026-08-05 is "August's rent". Stamped into the posted transaction so the
+ * ledger records which month a payment settled.
+ *
+ * @module recurring
+ */
 export function cyclePeriodLabel(frequency: string, cycleDate: string): string {
   const [y, m, d] = cycleDate.split("-").map(Number);
   if (frequency === "yearly") return String(y);
@@ -660,17 +660,16 @@ async function postRecurringCycle(rule: RecurringRuleRow, user: AuthedUser, occu
   return tx;
 }
 
-// Manual "mark this cycle paid" for a subscription/recurring expense that
-// isn't flagged auto_post - posts one transaction for the *current* cycle
-// (whatever next_run_date currently is, even if the user is doing this
-// early or a bit late) and advances the schedule by one interval.
-//
-// The client sends the `period` (the next_run_date it was showing) it means
-// to settle. A second click - on a row that hasn't re-rendered yet, or a
-// double-submit - still carries the *old* period, which no longer matches
-// the already-advanced rule, so it's rejected instead of quietly posting the
-// following month too. Omitting `period` keeps the old blind behaviour for
-// any caller that doesn't know about it.
+/**
+ * Marks the current cycle of a non-auto-post rule paid.
+ *
+ * Posts one transaction for whatever next_run_date currently is and advances
+ * the schedule by one interval. A stale `period` is rejected with 409, which
+ * is what stops a double click posting the following month too; omitting it
+ * keeps the older unguarded behaviour.
+ *
+ * @module recurring
+ */
 async function handlePostRecurringRule(req: Request, ruleId: string, user: AuthedUser): Promise<Response> {
   const { period } = await req.json().catch(() => ({}));
 
@@ -703,17 +702,11 @@ async function handlePostRecurringRule(req: Request, ruleId: string, user: Authe
 }
 
 // --- Credit card statement cycles ------------------------------------------
-// A card has two dates, not one: the *statement (billing) day* that closes a
-// cycle, and the *due day* by which that closed cycle has to be paid.
-// Everything charged from the day after the previous statement day up to and
-// including the latest one is this statement; anything swiped after it is
-// unbilled and rolls into next month's statement, even though the current
-// bill hasn't been paid yet. That distinction is the whole point - the old
-// model billed the entire outstanding balance on one day, so a purchase made
-// the day after the statement closed was demanded a fortnight early.
-//
-// Cards with no statement_day set fall back to "everything outstanding is
-// billed", i.e. exactly what this did before cycles existed.
+// A card has two dates: the statement day that closes a cycle, and the due day
+// by which that closed cycle must be paid. Spend after the statement day is
+// unbilled and rolls into the next cycle even though the current bill is
+// outstanding. Cards with no statement_day bill the whole outstanding balance.
+// See DEVDOC "Credit card statement cycles".
 
 interface CreditAccountRow {
   id: string; name: string; currency: string; current_balance: string; credit_limit: string | null;
@@ -851,12 +844,15 @@ async function handleCreditCardStatements(req: Request, user: AuthedUser): Promi
   return json({ data: await loadStatementCycles(user, tz) });
 }
 
-// Called once per session on app load (no cron on this box) - catches up
-// any auto_post recurring rules whose next_run_date has arrived, and pays
-// autopay-enabled credit card *statements* on their due date. Capped
-// iteration per rule guards against a rule that's been inactive/unvisited
-// for a very long time generating an unbounded backlog of transactions in
-// one pass.
+/**
+ * Catch-up pass, called once per app load because the host has no scheduler.
+ *
+ * Posts any auto_post rule whose next_run_date has arrived, then settles
+ * autopay cards whose statement is due. Iteration per rule is capped so a rule
+ * left unvisited for a year cannot generate an unbounded backlog in one pass.
+ *
+ * @module recurring
+ */
 async function handleProcessDue(req: Request, user: AuthedUser): Promise<Response> {
   const tz = tzOffsetOf(new URL(req.url).searchParams);
   const today = localDate(new Date(), tz);
@@ -930,10 +926,8 @@ function formatDayLabel(dateStr: string): string {
 
 // --- Reports ---------------------------------------------------------------
 
-// Spend with no category set still has to appear in the category chart -
-// dropping it (as this used to) silently hid every uncategorised card swipe
-// and every subscription posted without a category, so the pie chart added
-// up to less than the "Expense" total sitting right above it.
+// Uncategorised spend gets its own bucket rather than being dropped, so the
+// category chart adds up to the expense total shown above it.
 const UNCATEGORIZED_KEY = "uncategorized";
 
 function rangeToDates(range: string, startParam: string | null, endParam: string | null, tzOffsetMin: number): { start: string; end: string } {
@@ -967,10 +961,9 @@ async function handleReportsSummary(req: Request, user: AuthedUser): Promise<Res
   const tz = tzOffsetOf(url.searchParams);
   const { start, end } = rangeToDates(range, url.searchParams.get("start"), url.searchParams.get("end"), tz);
 
-  // Bounds are the user's local midnight-to-midnight converted to absolute
-  // instants - comparing a timestamptz against a bare "YYYY-MM-DDT00:00:00"
-  // resolved in the *container's* zone is what used to push early-morning
-  // spend out of "today" (and out of the first day of the month).
+  // Bounds are the user's local midnight-to-midnight as absolute instants;
+  // comparing against a bare local-looking string resolves in the container's
+  // zone and pushes early-morning spend out of the range.
   const transactions = await pg(
     `/transactions${qs({ user_id: `eq.${user.sub}`, select: "id,type,amount,category_id,occurred_at,is_group_expense,group_total_amount" })}` +
     `&and=(occurred_at.gte.${instantFromLocal(start, tz, "start")},occurred_at.lte.${instantFromLocal(end, tz, "end")})`,
@@ -1025,7 +1018,7 @@ async function handleReportsSummary(req: Request, user: AuthedUser): Promise<Res
   });
 }
 
-// --- Upload (receipts, writes directly to the shared public-cdn volume) ----
+// --- Upload (receipts, written to the shared public-cdn volume) ------------
 
 const SAFE_FILENAME = /^[a-zA-Z0-9._-]+$/;
 const MAX_FILE_BYTES = 10 * 1024 * 1024;
