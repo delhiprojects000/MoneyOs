@@ -44,7 +44,7 @@ export default function Goals() {
       id: contributingTo.id,
       payload: { current_amount: newAmount, status: newAmount >= contributingTo.target_amount ? 'completed' : 'active' },
     });
-    if (newAmount >= contributingTo.target_amount) toast.success('Goal reached! 🎉');
+    if (newAmount >= contributingTo.target_amount) toast.success('Goal reached');
     else toast.success('Contribution added');
     setContributingTo(undefined);
     setContribution('');
@@ -95,7 +95,7 @@ export default function Goals() {
                   <span className="text-muted-foreground">of {formatMoney(g.target_amount, currency)}</span>
                 </div>
                 {g.status === 'completed' ? (
-                  <p className="mt-2 text-xs font-medium text-success">Goal reached! 🎉</p>
+                  <p className="mt-2 flex items-center gap-1 text-xs font-medium text-success"><PartyPopper className="h-3.5 w-3.5" />Goal reached</p>
                 ) : (
                   <>
                     {suggested > 0 && <p className="mt-1 text-xs text-muted-foreground">~{formatMoney(suggested, currency)}/month to hit your date</p>}

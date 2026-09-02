@@ -38,6 +38,8 @@ language can read them all.
   belongs in git, in `DEVDOC.md` if it is a project-wide decision, or in
   `not_for_you.md` if it is a local one.
 - **No em dashes.** Use a hyphen.
+- **No literal emoji.** Not in code, strings, UI copy or docs. Use `lucide-react`, which is already a
+  dependency, so an icon can be sized, coloured and themed like everything else.
 
 ## Cross-repo tags
 
