@@ -1,3 +1,5 @@
+<!-- Generated from README.md by scripts/build-light-readme.mjs. Do not edit by hand. -->
+
 <div align="center">
 
 <picture>
@@ -24,7 +26,7 @@
 
 **[Developer documentation](./DEVDOC.md)** · [Features](#features) · [Getting started](#getting-started)
 
-<p><b>Dark mode</b> · <a href="./README-light.md">View this page in light mode</a></p>
+<p><b>Light mode</b> · <a href="./README.md">View this page in dark mode</a></p>
 
 </div>
 
@@ -64,48 +66,48 @@ Two things the author kept hitting, both visible in how the app is built:
 
 ## Screenshots
 
-Every image is a real 1440x900 viewport render of the app with the demo account seeded. This page shows **dark mode**; the same gallery in light mode is at **[README-light.md](./README-light.md)**.
+Every image is a real 1440x900 viewport render of the app with the demo account seeded. This page shows **light mode**; the same gallery in dark mode is at **[README.md](./README.md)**.
 
 <table>
   <tr>
     <td width="33%" valign="top">
-      <img src="./docs/screenshots/dark/01-dashboard.png" alt="Dashboard showing balances, spending trend and upcoming dues" loading="lazy">
+      <img src="./docs/screenshots/light/01-dashboard.png" alt="Dashboard showing balances, spending trend and upcoming dues" loading="lazy">
       <p align="center"><b>Dashboard</b><br><sub>Balances, this month's trend, and everything due in the next 15 days.</sub></p>
     </td>
     <td width="33%" valign="top">
-      <img src="./docs/screenshots/dark/02-transactions.png" alt="Transaction ledger grouped by day with category tags" loading="lazy">
+      <img src="./docs/screenshots/light/02-transactions.png" alt="Transaction ledger grouped by day with category tags" loading="lazy">
       <p align="center"><b>Transactions</b><br><sub>The full ledger, grouped by day, searchable and filterable.</sub></p>
     </td>
     <td width="33%" valign="top">
-      <img src="./docs/screenshots/dark/03-accounts.png" alt="Account cards including a credit card with its statement cycle" loading="lazy">
+      <img src="./docs/screenshots/light/03-accounts.png" alt="Account cards including a credit card with its statement cycle" loading="lazy">
       <p align="center"><b>Accounts</b><br><sub>Wallets and cards, with billed and unbilled split out per card.</sub></p>
     </td>
   </tr>
   <tr>
     <td width="33%" valign="top">
-      <img src="./docs/screenshots/dark/04-reports.png" alt="Reports with income versus expense bars and a category donut chart" loading="lazy">
+      <img src="./docs/screenshots/light/04-reports.png" alt="Reports with income versus expense bars and a category donut chart" loading="lazy">
       <p align="center"><b>Reports</b><br><sub>Income against expense and spend by category, over any range.</sub></p>
     </td>
     <td width="33%" valign="top">
-      <img src="./docs/screenshots/dark/05-budgets.png" alt="Budget cards with progress bars, one over its limit in red" loading="lazy">
+      <img src="./docs/screenshots/light/05-budgets.png" alt="Budget cards with progress bars, one over its limit in red" loading="lazy">
       <p align="center"><b>Budgets</b><br><sub>Per-category limits, with overspend called out rather than clipped.</sub></p>
     </td>
     <td width="33%" valign="top">
-      <img src="./docs/screenshots/dark/06-goals.png" alt="Savings goals with progress and required monthly contribution" loading="lazy">
+      <img src="./docs/screenshots/light/06-goals.png" alt="Savings goals with progress and required monthly contribution" loading="lazy">
       <p align="center"><b>Goals</b><br><sub>Targets, progress, and the monthly rate needed to hit the date.</sub></p>
     </td>
   </tr>
   <tr>
     <td width="33%" valign="top">
-      <img src="./docs/screenshots/dark/07-emis-loans.png" alt="Loan list showing lender, monthly EMI and next due instalment" loading="lazy">
+      <img src="./docs/screenshots/light/07-emis-loans.png" alt="Loan list showing lender, monthly EMI and next due instalment" loading="lazy">
       <p align="center"><b>EMIs and loans</b><br><sub>Full amortisation schedules, with the next instalment on the card.</sub></p>
     </td>
     <td width="33%" valign="top">
-      <img src="./docs/screenshots/dark/08-subscriptions.png" alt="Subscription list with autopay badges and a paused row" loading="lazy">
+      <img src="./docs/screenshots/light/08-subscriptions.png" alt="Subscription list with autopay badges and a paused row" loading="lazy">
       <p align="center"><b>Subscriptions</b><br><sub>Recurring spend, with autopay handled and pausing supported.</sub></p>
     </td>
     <td width="33%" valign="top">
-      <img src="./docs/screenshots/dark/09-bill-reminders.png" alt="Bill reminders including an overdue and a settled row" loading="lazy">
+      <img src="./docs/screenshots/light/09-bill-reminders.png" alt="Bill reminders including an overdue and a settled row" loading="lazy">
       <p align="center"><b>Bill reminders</b><br><sub>One-off dues that are not subscriptions and not EMIs.</sub></p>
     </td>
   </tr>
@@ -114,7 +116,7 @@ Every image is a real 1440x900 viewport render of the app with the demo account 
 <details>
 <summary><b>Settings</b></summary>
 <br>
-<img src="./docs/screenshots/dark/10-settings.png" alt="Settings with profile, theme mode, accent palette and category management" loading="lazy">
+<img src="./docs/screenshots/light/10-settings.png" alt="Settings with profile, theme mode, accent palette and category management" loading="lazy">
 </details>
 
 ## Responsive layout
@@ -124,19 +126,19 @@ Each image is its own device viewport, not a crop of the desktop layout. The sid
 <table>
   <tr>
     <td width="20%" valign="top">
-      <img src="./docs/screenshots/responsive/dark/mobile-dashboard.png" alt="Dashboard at 390px wide" loading="lazy">
+      <img src="./docs/screenshots/responsive/light/mobile-dashboard.png" alt="Dashboard at 390px wide" loading="lazy">
       <p align="center"><sub><b>Dashboard</b><br>390 x 844</sub></p>
     </td>
     <td width="20%" valign="top">
-      <img src="./docs/screenshots/responsive/dark/mobile-transactions.png" alt="Transactions at 390px wide" loading="lazy">
+      <img src="./docs/screenshots/responsive/light/mobile-transactions.png" alt="Transactions at 390px wide" loading="lazy">
       <p align="center"><sub><b>Transactions</b><br>390 x 844</sub></p>
     </td>
     <td width="20%" valign="top">
-      <img src="./docs/screenshots/responsive/dark/mobile-accounts.png" alt="Accounts at 390px wide" loading="lazy">
+      <img src="./docs/screenshots/responsive/light/mobile-accounts.png" alt="Accounts at 390px wide" loading="lazy">
       <p align="center"><sub><b>Accounts</b><br>390 x 844</sub></p>
     </td>
     <td width="40%" valign="top">
-      <img src="./docs/screenshots/responsive/dark/tablet-accounts.png" alt="Accounts at 820px wide" loading="lazy">
+      <img src="./docs/screenshots/responsive/light/tablet-accounts.png" alt="Accounts at 820px wide" loading="lazy">
       <p align="center"><sub><b>Accounts</b><br>820 x 960</sub></p>
     </td>
   </tr>

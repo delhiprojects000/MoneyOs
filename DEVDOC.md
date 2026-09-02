@@ -25,6 +25,7 @@ Technical reference for the MoneyOS codebase: architecture, auth, data model, AP
 - [Deployment](#deployment)
 - [Security notes](#security-notes)
 - [Known constraints and future enhancements](#known-constraints-and-future-enhancements)
+- [Documentation](#documentation)
 - [Contributors](#contributors)
 - [Glossary](#glossary)
 
@@ -383,10 +384,11 @@ supabase/
   migrations/                 Ordered SQL, 0001 to 0006
 docs/
   assets/                     README logo
-  screenshots/                light/, dark/, responsive/
+  screenshots/                dark/, light/, responsive/dark/, responsive/light/
   COMMENT_STYLE.md            Doc comment convention
 scripts/
   seed-demo.mjs               Demo data seeder
+  build-light-readme.mjs      Generates README-light.md from README.md
 ```
 
 Routes, all under `RequireAuth` except `/auth`:
@@ -599,6 +601,7 @@ Frontend: redeploy the previous Vercel deployment. Backend: keep a copy of the p
 - **Single currency per profile.** `currency` exists per account and per transaction, but nothing converts between them; a mixed-currency account list would produce a meaningless total.
 - **No pagination.** Transaction lists are capped by `limit` and load in one request. Fine at a few thousand rows, not at fifty thousand.
 - **Bundle is 965KB before gzip, 277KB after.** Everything is in one chunk; Recharts and framer-motion dominate.
+- **The dashboard stat tiles overflow between 768px and roughly 900px.** The grid is `grid-cols-2 md:grid-cols-4`, so at the `md` breakpoint four tiles share the width and a seven-figure rupee amount is clipped. Visible in the tablet screenshot. The fix is an `lg:grid-cols-4` step, leaving two columns through the tablet range.
 - **Goals are manual.** A contribution does not move money between accounts, so a goal can claim savings the balances do not have.
 - **`activity_log` is barely used.** Written only on transaction creation and never read.
 - **No account deletion.** There is no route to delete a user or export-then-erase.
@@ -614,6 +617,20 @@ Frontend: redeploy the previous Vercel deployment. Backend: keep a copy of the p
 7. CSV import, to make switching to MoneyOS possible without retyping history.
 8. Multi-currency with stored conversion rates.
 9. Read the `activity_log` into a visible history, or drop the table.
+
+## Documentation
+
+`README.md` and `README-light.md` are the same page in two themes. GitHub has no theme
+toggle, so the toggle is a pair of files linking to each other, each using one screenshot
+set. Only `README.md` is edited by hand:
+
+```bash
+npm run docs:readme-light   # regenerates README-light.md from README.md
+```
+
+The script fails loudly if a marker it rewrites has gone missing, so the two cannot
+silently drift. Screenshots live under `docs/screenshots/<theme>/` with identical
+filenames in both, which is what makes the substitution safe.
 
 ## Contributors
 

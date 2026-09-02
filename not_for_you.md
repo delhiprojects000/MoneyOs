@@ -135,11 +135,14 @@ This is the dumping ground for small local decisions, oddities noticed while rea
 - The Cash account needs special handling: sign-up auto-creates it at zero, so the seeder patches its opening balance instead of creating a second one. Without that, cash spending drives it negative and the accounts page shows a wallet that owes money.
 - The GPay wallet opening balance was raised to 9,500 for the same reason after adding current-month transactions.
 - Budgets are calendar-month scoped, so seeding on the 2nd of a month leaves every budget at zero unless some transactions land in the current month. That is why the seed has a deliberate current-month block.
-- Screenshots were captured with the browser window at 1920 wide; `resize_window` did not take effect in that environment, so the responsive shots are iframes at 390 and 820 wide, which resolve media queries against the iframe viewport correctly.
-
----
+- Screenshots are captured by driving the browser against a local dev server. `resize_window` does not take effect in that environment, so the app is rendered in an iframe sized to the exact target viewport, with scrollbars hidden by injected CSS, and each image is captured on its own. An earlier attempt laid three iframes side by side and captured the lot: that produces a contact sheet with visible scrollbars, not a screenshot.
+- Radix tabs ignore a synthetic `element.click()` from injected JavaScript. The Reports range and the EMIs tabs have to be driven with a real mouse click at the tab's coordinates.
+- The mouse cursor is drawn into the capture, so it is parked off-frame before every shot.
+- Tablet captures are 820x960 rather than 820x1180: the browser window is 971px tall, so a 1180px iframe would be clipped. The README says 960 rather than claiming a size that was not used.
 
 ## Open threads
+
+- Dashboard stat tiles clip between 768px and ~900px (`grid-cols-2 md:grid-cols-4` should step at `lg`). Found while capturing the tablet screenshot.
 
 - Decide whether `attachments` or `transactions.attachment_url` survives.
 - Decide whether `activity_log` gets finished or dropped.
