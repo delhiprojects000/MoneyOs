@@ -1,12 +1,19 @@
 import { createContext, useContext, useEffect, useState, ReactNode } from 'react';
 
-// Personal, localStorage-only theming (no shared-workspace concept in
-// MoneyOS, unlike workos-personal's ThemeContext this is adapted from) -
-// light/dark mode plus a handful of accent palettes.
+/**
+ * Light/dark mode and the accent palette.
+ *
+ * Both are per-device preferences held in localStorage: MoneyOS has no shared
+ * workspace, so there is nothing to sync. The palette writes its HSL values
+ * onto CSS custom properties; see DEVDOC "Theming".
+ *
+ * @module theming
+ */
 
 type Mode = 'light' | 'dark';
 export type ColorPalette = 'emerald' | 'ocean' | 'sunset' | 'violet' | 'rose' | 'slate' | 'custom';
 
+/** Converts `#rrggbb` to the `"H S% L%"` triple Tailwind's tokens expect. @public */
 export function hexToHSL(hex: string): string {
   hex = hex.replace('#', '');
   const r = parseInt(hex.substring(0, 2), 16) / 255;
@@ -84,6 +91,7 @@ const ThemeContext = createContext<ThemeContextType | undefined>(undefined);
 const DEFAULT_CUSTOM_PRIMARY = '#059669';
 const DEFAULT_CUSTOM_ACCENT = '#0d9488';
 
+/** @public */
 export function ThemeProvider({ children }: { children: ReactNode }) {
   const [theme, setTheme] = useState<Mode>(() => {
     const stored = localStorage.getItem('moneyos-theme');
@@ -141,6 +149,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   );
 }
 
+/** @throws If used outside ThemeProvider. @public */
 export function useTheme() {
   const ctx = useContext(ThemeContext);
   if (!ctx) throw new Error('useTheme must be used within ThemeProvider');

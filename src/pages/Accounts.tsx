@@ -1,3 +1,8 @@
+/**
+ * Wallets and cards, transfers between them, and each card's statement cycle.
+ *
+ * @module accounts
+ */
 import { useEffect, useState } from 'react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -111,10 +116,10 @@ export default function Accounts() {
   );
 }
 
-// The two numbers that matter on a card are not the same thing: what the
-// closed statement demands by its due date, and what's been swiped since that
-// statement closed (which isn't owed until the *next* due date, however large
-// it already is).
+/**
+ * The two numbers on a card that are not the same thing: what the closed
+ * statement demands by its due date, and what has been swiped since.
+ */
 function StatementSummary({ statement }: { statement?: CreditCardStatement }) {
   if (!statement) return null;
 

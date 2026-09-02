@@ -4,9 +4,20 @@ import {
   type CreateTransactionInput, type CreateLoanInput, type Account, type Category, type PaymentMethod, type Budget, type Goal, type Bill, type RecurringRule,
 } from '@/lib/api';
 
-// Invalidate both accounts (balances change) and transactions/reports after
-// any write that could move money - simpler than threading fine-grained
-// invalidation through every call site.
+/**
+ * React Query bindings for every MoneyOS resource.
+ *
+ * Queries are keyed by resource name so a mutation can invalidate a whole area
+ * without each call site knowing what else depends on it.
+ *
+ * @module data
+ */
+
+/**
+ * Invalidates everything a money movement can change: balances, the ledger,
+ * reports, loans and card statements. Coarser than per-call invalidation, and
+ * the reason no screen shows a stale balance after a write.
+ */
 function useMoneyMutationInvalidation() {
   const qc = useQueryClient();
   return () => {
@@ -14,8 +25,6 @@ function useMoneyMutationInvalidation() {
     qc.invalidateQueries({ queryKey: ['transactions'] });
     qc.invalidateQueries({ queryKey: ['reports'] });
     qc.invalidateQueries({ queryKey: ['loans'] });
-    // Card statements are derived from balances + transactions, so any money
-    // movement can change what's billed or still unbilled on a card.
     qc.invalidateQueries({ queryKey: ['credit-card-statements'] });
   };
 }
@@ -24,9 +33,14 @@ export function useAccounts() {
   return useQuery({ queryKey: ['accounts'], queryFn: accounts.list });
 }
 
-// Per-card statement cycle (what's billed, what's still unbilled, when it's
-// due) - computed server-side so the dashboard, notifications bell, and
-// accounts page can't drift apart on the same card's bill.
+/**
+ * Per-card statement cycle: what is billed, what is not yet billed, when it is
+ * due. Computed server-side so the dashboard, bell and accounts page cannot
+ * disagree about the same card.
+ *
+ * @module credit-cards
+ * @public
+ */
 export function useCreditCardStatements() {
   return useQuery({ queryKey: ['credit-card-statements'], queryFn: creditCards.statements });
 }
@@ -315,9 +329,8 @@ export function usePostRecurringRule() {
   const invalidate = useMoneyMutationInvalidation();
   const qc = useQueryClient();
   return useMutation({
-    // `period` is the cycle the UI was showing as due - the server rejects it
-    // if the rule already advanced past it, which is what stops a second
-    // click from posting next month's payment too.
+    // `period` is the cycle the UI was showing. The server rejects a stale one,
+    // which is what stops a double click posting next month's payment too.
     mutationFn: ({ id, period }: { id: string; period?: string }) => recurringRules.post(id, period),
     onSuccess: () => {
       invalidate();
@@ -327,9 +340,15 @@ export function usePostRecurringRule() {
   });
 }
 
-// Fires once per app load to catch up any due auto_post recurring rules and
-// settle credit-card autopay - see backend handleProcessDue (no cron on the
-// VM, so "on every visit" stands in for one).
+/**
+ * Catch-up pass for auto-posting subscriptions and credit-card autopay.
+ *
+ * There is no scheduler on the host, so the app runs this once per load in
+ * place of a cron job. See DEVDOC "Catch-up processing".
+ *
+ * @module recurring
+ * @public
+ */
 export function useProcessDue() {
   const invalidate = useMoneyMutationInvalidation();
   const qc = useQueryClient();

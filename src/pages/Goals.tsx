@@ -1,3 +1,8 @@
+/**
+ * Savings targets, contributions, and the monthly rate needed to hit each date.
+ *
+ * @module goals
+ */
 import { useEffect, useState } from 'react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';

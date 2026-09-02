@@ -1,11 +1,15 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 
-// Reminder keys already embed the specific due date/occurrence (see
-// buildUpcomingItems), so persisting a plain set of dismissed keys is enough
-// to "swipe away" one - once the underlying due date moves to the next
-// cycle, the key changes and it naturally reappears. Capped so a long-lived
-// account doesn't grow this unboundedly in localStorage.
+/**
+ * Per-viewer dismissal of reminders, persisted in localStorage.
+ *
+ * @module dues
+ */
+
+// A reminder key embeds its own occurrence, so storing dismissed keys is
+// enough: when the due date rolls to the next cycle the key changes and the
+// reminder returns on its own. Capped so this cannot grow without bound.
 const MAX_ENTRIES = 300;
 
 function storageKey(userId: string) {
@@ -26,6 +30,11 @@ function save(userId: string, keys: Set<string>) {
   localStorage.setItem(storageKey(userId), JSON.stringify(arr));
 }
 
+/**
+ * @returns `isDismissed` for filtering, plus `dismiss` and `dismissAll`.
+ *   Scoped per user, so signing in as someone else starts clean.
+ * @public
+ */
 export function useDismissedReminders() {
   const { user } = useAuth();
   const [dismissed, setDismissed] = useState<Set<string>>(() => new Set());

@@ -1,3 +1,8 @@
+/**
+ * Sidebar, mobile nav and the quick-add button that wrap every signed-in screen.
+ *
+ * @module layout
+ */
 import { Link, NavLink, Outlet } from 'react-router-dom';
 import { useEffect, useState } from 'react';
 import {
@@ -63,9 +68,7 @@ export function AppShell() {
   const initials = (user?.display_name || user?.username || '?').slice(0, 2).toUpperCase();
   const processDue = useProcessDue();
 
-  // No cron on the VM - catch up any due auto_post subscriptions and settle
-  // credit-card autopay once per app load instead. Fire-and-forget; a
-  // failure here shouldn't block the UI from rendering.
+  // Stands in for a cron job. Fire and forget: a failure must not block render.
   useEffect(() => {
     processDue.mutate();
     // eslint-disable-next-line react-hooks/exhaustive-deps

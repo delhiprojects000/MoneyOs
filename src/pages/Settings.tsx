@@ -1,3 +1,8 @@
+/**
+ * Profile, appearance, categories, payment methods, and data export.
+ *
+ * @module settings
+ */
 import { useState } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -25,10 +30,8 @@ const PALETTE_LABELS: Record<Exclude<ColorPalette, 'custom'>, string> = {
 };
 
 export default function Settings() {
-  // These are the same queries CategoriesCard/PaymentMethodsCard make
-  // themselves - calling them here too just reads the shared cache, it
-  // doesn't re-fetch, and lets the whole page show one skeleton instead of
-  // each card popping in separately.
+  // Reads the shared query cache rather than re-fetching, so the page shows
+  // one skeleton instead of each card popping in separately.
   const { isLoading: categoriesLoading } = useCategories();
   const { isLoading: paymentMethodsLoading } = usePaymentMethods();
 
@@ -339,10 +342,9 @@ function downloadBlob(content: string, mimeType: string, fileName: string) {
   const a = document.createElement('a');
   a.href = url;
   a.download = fileName;
-  // Must be attached to the DOM for the click to reliably trigger a
-  // download in every browser, and the object URL has to outlive the click
-  // handler - revoking it synchronously right after .click() can race with
-  // the browser actually starting to read the blob.
+  // The anchor must be in the DOM for the click to fire everywhere, and the
+  // object URL must outlive the handler: revoking it synchronously races the
+  // browser starting to read the blob.
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);

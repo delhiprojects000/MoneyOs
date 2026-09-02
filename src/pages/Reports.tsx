@@ -1,3 +1,8 @@
+/**
+ * Income against expense, spend by category, and budget against actual, over a chosen range.
+ *
+ * @module reporting
+ */
 import { useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -9,8 +14,7 @@ import { UNCATEGORIZED_KEY } from '@/lib/api';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
 
 const PIE_COLORS = ['#059669', '#0284c7', '#ea580c', '#7c3aed', '#e11d48', '#d97706', '#0d9488', '#db2777', '#84cc16', '#64748b'];
-// Uncategorised spend always reads as the same neutral grey rather than
-// borrowing a category's colour from the palette.
+// Uncategorised spend keeps a neutral grey rather than borrowing a palette colour.
 const UNCATEGORIZED_COLOR = '#94a3b8';
 
 export default function Reports() {
@@ -20,8 +24,7 @@ export default function Reports() {
   const { data: summary, isLoading } = useReportsSummary(range);
   const { data: categories = [] } = useCategories('expense');
 
-  // Longer ranges come back bucketed by month instead of by day, so the axis
-  // has to label them differently ("Aug" vs "14").
+  // Longer ranges arrive bucketed by month, so the axis labels differ.
   const byMonth = summary?.range.granularity === 'month';
   const formatBucket = (d: string) => (byMonth ? formatDayMonth(`${d}-01`).replace(/^\d+\s/, '') : String(Number(d.slice(8))));
 

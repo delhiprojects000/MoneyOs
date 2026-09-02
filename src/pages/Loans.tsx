@@ -1,3 +1,8 @@
+/**
+ * Every recurring obligation: EMIs with amortisation schedules, subscriptions, and standalone bill reminders.
+ *
+ * @module loans
+ */
 import { useEffect, useMemo, useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -61,9 +66,8 @@ function LoansTab() {
   const [expanded, setExpanded] = useState<string | undefined>(undefined);
   const deleteLoan = useDeleteLoan();
 
-  // Earliest pending installment per loan, shown right on the collapsed card
-  // so a schedule change (e.g. editing the start date) is visible at a
-  // glance without expanding into the full installment list.
+  // Earliest pending instalment per loan, so a schedule change is visible on
+  // the collapsed card without expanding it.
   const nextDueByLoan = useMemo(() => {
     const map = new Map<string, (typeof pendingPayments)[number]>();
     for (const p of pendingPayments) if (!map.has(p.loan_id)) map.set(p.loan_id, p);
@@ -318,8 +322,7 @@ function RecurringTab() {
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<RecurringRule | undefined>(undefined);
   const [deleting, setDeleting] = useState<RecurringRule | undefined>(undefined);
-  // Which row is mid-post, so only that row's button locks up (one shared
-  // mutation would otherwise disable every row's).
+  // Which row is mid-post, so one shared mutation does not disable every row.
   const [posting, setPosting] = useState<string | undefined>(undefined);
 
   const monthlyTotal = rules
@@ -335,9 +338,7 @@ function RecurringTab() {
     }
   };
 
-  // The cycle being settled travels with the request: if this row was already
-  // posted (a double-click, or a stale tab), the server rejects the stale
-  // period with a 409 instead of quietly posting next month's payment too.
+  // The cycle travels with the request so the server can reject a stale one.
   const markPaid = async (rule: RecurringRule) => {
     if (posting) return;
     setPosting(rule.id);

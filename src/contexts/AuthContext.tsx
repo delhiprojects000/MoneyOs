@@ -1,3 +1,8 @@
+/**
+ * Session state: who is signed in, and the sign in / sign up / sign out verbs.
+ *
+ * @module auth
+ */
 import { createContext, useContext, useEffect, useState, ReactNode } from 'react';
 import { auth, type User } from '@/lib/api';
 import { getToken, setToken, clearToken, decodeToken } from '@/lib/authToken';
@@ -13,6 +18,7 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
+/** @public */
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
@@ -61,6 +67,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   );
 }
 
+/** @throws If used outside AuthProvider. @public */
 export function useAuth() {
   const ctx = useContext(AuthContext);
   if (!ctx) throw new Error('useAuth must be used within AuthProvider');

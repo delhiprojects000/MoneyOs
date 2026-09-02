@@ -1,3 +1,8 @@
+/**
+ * Bell showing dues inside the reminder window, each dismissable per occurrence.
+ *
+ * @module dues
+ */
 import { useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import { Bell, AlertTriangle, CreditCard, Repeat, Landmark, X } from 'lucide-react';
@@ -26,9 +31,8 @@ export function NotificationsBell() {
   const { isDismissed, dismiss, dismissAll } = useDismissedReminders();
 
   const allReminders = useMemo(() => {
-    // auto_post rules settle themselves via process-due with no action
-    // needed from the user, so they're excluded here - Dashboard's upcoming
-    // list still shows them since that's meant to be a full picture.
+    // auto_post rules settle themselves, so they need no reminder here. The
+    // dashboard still lists them, being a full picture rather than a to-do.
     const nonAutoRules = rules.filter((r) => !r.auto_post);
     const autopayByCard = Object.fromEntries(cardStatements.map((s) => [s.account_id, s.autopay_enabled]));
     const items = buildUpcomingItems({ bills, loans, pendingPayments, rules: nonAutoRules, cardStatements });
@@ -39,9 +43,7 @@ export function NotificationsBell() {
         : i);
   }, [bills, loans, pendingPayments, rules, cardStatements]);
 
-  // Each key already embeds the specific due date (loan payment id, bill id,
-  // or the rule/card id) - dismissing it only hides *this* occurrence, so it
-  // naturally reappears once the due date moves on to the next cycle.
+  // Keys embed the occurrence, so a dismissal hides only this one.
   const reminders = useMemo(
     () => allReminders.filter((r) => !isDismissed(r.key)).sort((x, y) => Number(y.overdue) - Number(x.overdue)),
     [allReminders, isDismissed],

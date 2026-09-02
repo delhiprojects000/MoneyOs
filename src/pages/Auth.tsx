@@ -1,3 +1,8 @@
+/**
+ * Sign in and sign up, the only screen reachable without a session.
+ *
+ * @module auth
+ */
 import { useState } from 'react';
 import { Navigate } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';

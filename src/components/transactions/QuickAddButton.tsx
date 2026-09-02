@@ -1,3 +1,8 @@
+/**
+ * Floating action button that opens the transaction dialog from any screen.
+ *
+ * @module transactions
+ */
 import { useState } from 'react';
 import { Plus } from 'lucide-react';
 import { Button } from '@/components/ui/button';

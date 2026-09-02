@@ -1,6 +1,12 @@
-// Single client for the `moneyos` Edge Function - every read/write in the
-// app goes through this instead of calling Postgres/PostgREST directly,
-// mirroring the sibling portfolio/workos-personal projects' src/lib/api.ts.
+/**
+ * The only way the app talks to the backend.
+ *
+ * Every read and write goes through the `moneyos` edge function rather than
+ * hitting PostgREST directly, so authorisation and balance arithmetic live in
+ * exactly one place. See DEVDOC "Architecture overview".
+ *
+ * @module api
+ */
 
 import { getToken, clearToken } from './authToken';
 
@@ -30,11 +36,15 @@ function jsonCall(path: string, method: string, body?: unknown) {
   return call(path, { method, headers: { 'Content-Type': 'application/json' }, ...(body !== undefined ? { body: JSON.stringify(body) } : {}) });
 }
 
-// Minutes east of UTC (330 for IST). Every date bucket the backend computes -
-// "today", "this month", a card's statement cycle - is a calendar date in the
-// user's own timezone, but occurred_at is an absolute timestamp and the
-// backend container runs on UTC. Sending this with anything date-bucketed is
-// what keeps a 1am expense inside today instead of yesterday.
+/**
+ * Minutes east of UTC, 330 for IST.
+ *
+ * Sent with every date-bucketed request. The server runs on UTC but every
+ * "today" and "this month" is a calendar date in the user's own zone, so
+ * without this a 1am expense falls into yesterday.
+ *
+ * @public
+ */
 export const tzOffsetMinutes = () => -new Date().getTimezoneOffset();
 
 // --- Types ------------------------------------------------------------
@@ -71,12 +81,10 @@ export interface Account {
   icon: string | null;
   is_archived: boolean;
   sort_order: number;
-  // Credit card terms - only meaningful when type === 'credit'. Spending on
-  // a credit account drives current_balance negative through the normal
-  // expense flow (see backend applyBalanceEffect) - these fields just
-  // describe the card's own limit/statement-cycle/autopay behavior on top of
-  // that. statement_day closes a cycle, due_day is when that closed cycle has
-  // to be paid; see CreditCardStatement below.
+  // Credit card terms, meaningful only when type is 'credit'. Spending on a
+  // card drives current_balance negative through the ordinary expense path;
+  // these fields describe the card's own cycle on top of that. statement_day
+  // closes a cycle, due_day is when that closed cycle must be paid.
   credit_limit: number | null;
   statement_day: number | null;
   due_day: number | null;
@@ -153,8 +161,8 @@ export interface RecurringRule {
   is_active: boolean;
   notes: string | null;
   last_run_date: string | null;
-  // The cycle (a past next_run_date) this rule was last posted for - "paid
-  // for August", as opposed to last_run_date's "posted on the 2nd".
+  // Which cycle was last posted ("paid for August"), as opposed to
+  // last_run_date's "posted on the 2nd".
   last_posted_period: string | null;
 }
 
@@ -227,10 +235,15 @@ export interface Bill {
   notes: string | null;
 }
 
-// One credit card's current billing cycle, computed server-side (see
-// "Credit card statement cycles" in the edge function). The statement is
-// what's actually due on due_date; unbilled_spend is everything swiped after
-// the statement closed, which belongs to next month's bill instead.
+/**
+ * One card's current billing cycle, computed server-side.
+ *
+ * `amount_due` is what the closed statement demands by `due_date`.
+ * `unbilled_spend` is everything swiped since it closed, which belongs to next
+ * month's bill however large it already is.
+ *
+ * @module credit-cards
+ */
 export interface CreditCardStatement {
   account_id: string;
   name: string;
@@ -325,11 +338,14 @@ export const recurringRules = {
   create: (payload: Partial<RecurringRule>) => dataInsert<RecurringRule>('recurring_rules', payload),
   update: (id: string, payload: Partial<RecurringRule>) => dataUpdate<RecurringRule>('recurring_rules', id, payload),
   remove: (id: string) => dataDelete('recurring_rules', id),
-  // Manual "mark this cycle paid" - posts a transaction for the rule's
-  // current next_run_date and advances the schedule by one interval.
-  // `period` is the cycle the caller believes it's settling (the
-  // next_run_date it was showing); the server rejects it with a 409 if the
-  // rule has already moved past it, so a double-click can't post two cycles.
+  /**
+   * Marks the current cycle paid: posts one transaction and advances the
+   * schedule by one interval.
+   *
+   * @param period The cycle the caller believes it is settling. The server
+   *   returns 409 if the rule already moved past it, so a double click cannot
+   *   post two cycles.
+   */
   post: (id: string, period?: string): Promise<{ data: RecurringRule; transaction: Transaction }> =>
     jsonCall(`/recurring_rules/${id}/post`, 'POST', { period }),
 };
@@ -339,9 +355,7 @@ export const creditCards = {
     call(`/credit-cards/statements?tz_offset=${tzOffsetMinutes()}`).then((r) => r.data),
 };
 
-// Catch-up pass for auto_post recurring rules and credit-card autopay -
-// there's no cron on the box, so this is called once per session on app
-// load instead (see useProcessDue in useMoneyData.ts).
+/** Catch-up pass run once per app load, standing in for a cron job. @public */
 export const processDue = {
   run: (): Promise<{ posted_recurring: Transaction[]; autopay_settled: Transaction[] }> =>
     jsonCall(`/process-due?tz_offset=${tzOffsetMinutes()}`, 'POST'),
@@ -417,24 +431,22 @@ export interface CreateLoanInput {
 export const loans = {
   list: () => dataSelect<Loan>('loans'),
   create: (payload: CreateLoanInput): Promise<{ data: Loan; schedule: LoanPayment[] }> => jsonCall('/loans', 'POST', payload),
-  // Dedicated route, not the generic /data gateway - changing
-  // principal/rate/tenure/EMI/start_date needs the unpaid tail of the
-  // amortization schedule regenerated server-side (see backend handleUpdateLoan).
+  /**
+   * Dedicated route rather than the generic gateway: changing principal, rate,
+   * tenure, EMI or start date regenerates the unpaid tail of the schedule.
+   */
   update: (id: string, payload: Partial<CreateLoanInput>): Promise<{ data: Loan; schedule?: LoanPayment[] }> => jsonCall(`/loans/${id}`, 'PATCH', payload),
   remove: (id: string) => dataDelete('loans', id),
   schedule: (loanId: string): Promise<LoanPayment[]> => call(`/loans/${loanId}/schedule`).then((r) => r.data),
   payInstallment: (loanId: string, paymentId: string): Promise<{ data: LoanPayment; transaction: Transaction }> =>
     jsonCall(`/loans/${loanId}/payments/${paymentId}/pay`, 'POST'),
-  // Soonest unpaid installment per loan, for merging into a single
-  // "upcoming dues" list alongside standalone bills - one query instead of
-  // one schedule fetch per loan.
+  /** Every unpaid instalment across all loans, in one query rather than one per loan. */
   pendingPayments: () => dataSelect<LoanPayment>('loan_payments', { filters: { status: 'neq.paid' }, order: 'due_date.asc' }),
 };
 
 // --- Reports -----------------------------------------------------------
 
-// The key by_category uses for expenses with no category set - they're real
-// spend and belong in the chart, just under their own bucket.
+/** Bucket key for expenses with no category. Real spend, so it stays in the chart. @public */
 export const UNCATEGORIZED_KEY = 'uncategorized';
 
 export const reports = {

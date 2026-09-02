@@ -1,3 +1,8 @@
+/**
+ * Landing screen: balances, this month's trend, what is due next, and the latest transactions.
+ *
+ * @module dashboard
+ */
 import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -37,17 +42,13 @@ export default function Dashboard() {
   const { data: cardStatements = [] } = useCreditCardStatements();
   const [editingTx, setEditingTx] = useState<Transaction | undefined>(undefined);
 
-  // Credit card current_balance is negative when owed - summing it into
-  // "Total balance" would silently subtract card spend from your spendable
-  // cash the moment you swipe it, before any bill is actually due. Card debt
-  // still belongs in Net worth (computed server-side, unaffected by this),
-  // and shows up here as its own upcoming due below instead.
+  // Cards are excluded: their balance is negative when owed, so including them
+  // would subtract card spend from spendable cash the moment it is swiped.
+  // Card debt still counts in Net worth and appears as its own upcoming due.
   const totalBalance = accounts.filter((a) => a.type !== 'credit').reduce((s, a) => s + a.current_balance, 0);
   const currency = user?.default_currency || 'INR';
 
-  // Every source of "money about to move" - loan/EMI installments, standalone
-  // bill reminders, subscriptions/recurring payments, and credit card bills -
-  // merged into one list and windowed to the next 15 days.
+  // Every kind of due, merged and windowed to the next 15 days.
   const upcomingDues = useMemo(() => {
     const items = buildUpcomingItems({ bills, loans, pendingPayments, rules, cardStatements });
     return items.filter((i) => daysUntil(i.dueDate) <= UPCOMING_WINDOW_DAYS);

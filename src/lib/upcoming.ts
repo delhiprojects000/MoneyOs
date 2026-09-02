@@ -1,7 +1,12 @@
-// Shared "what money is about to move" logic - used by both the Dashboard's
-// upcoming-dues card and the NotificationsBell, so a loan installment,
-// subscription, standalone bill, or credit card bill only has one place that
-// decides its due date/amount/overdue-ness instead of two drifting copies.
+/**
+ * The single source of "what money is about to move".
+ *
+ * The dashboard's upcoming-dues card and the notifications bell both read from
+ * here, so an EMI, subscription, bill or card statement has one place deciding
+ * its due date, amount and overdue state rather than two copies that drift.
+ *
+ * @module dues
+ */
 import type { Bill, CreditCardStatement, Loan, LoanPayment, RecurringRule } from './api';
 import { formatCyclePeriod } from './format';
 
@@ -19,6 +24,7 @@ export interface UpcomingItem {
   href: string;
 }
 
+/** Whole days from today to a `YYYY-MM-DD` date; negative once overdue. @public */
 export function daysUntil(dateStr: string): number {
   const today = new Date(); today.setHours(0, 0, 0, 0);
   const [y, m, d] = dateStr.slice(0, 10).split('-').map(Number);
@@ -26,6 +32,13 @@ export function daysUntil(dateStr: string): number {
   return Math.round((target.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
 }
 
+/**
+ * Merges every obligation into one list, soonest first.
+ *
+ * @param params Each source in its own list; callers pass whatever they have
+ *   loaded, and an empty list simply contributes nothing.
+ * @public
+ */
 export function buildUpcomingItems(params: {
   bills: Bill[];
   loans: Loan[];
@@ -63,9 +76,8 @@ export function buildUpcomingItems(params: {
     });
   }
 
-  // Only the *closed* statement is a due - spend made after the statement
-  // date sits in unbilled_spend and isn't owed until next cycle's due date,
-  // even though it's already on the card's balance.
+  // Only the closed statement is a due. Spend after the statement date sits in
+  // unbilled_spend and is not owed until the next cycle.
   for (const s of cardStatements) {
     if (s.amount_due <= 0 || !s.due_date) continue;
     out.push({
