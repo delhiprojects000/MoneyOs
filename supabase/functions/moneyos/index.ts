@@ -22,6 +22,12 @@ const MONEYOS_JWT_SECRET = Deno.env.get("MONEYOS_JWT_SECRET") ?? "";
 const SCHEMA = "moneyos";
 const JWT_TTL_SECONDS = 60 * 60 * 24 * 30; // 30 days - daily-use personal tool, not a shared workspace
 
+// Where the ecosystem publishes the public keys its access tokens are signed
+// with. MoneyOS verifies those tokens against this, so a single sign-in reaches
+// MoneyOS without MoneyOS holding any signing secret.
+const ECOSYSTEM_ISSUER = Deno.env.get("GATEWAY_ISSUER") ?? "https://api.dileepadari.dev";
+const ECOSYSTEM_JWKS_URL = `${ECOSYSTEM_ISSUER}/identity/.well-known/jwks.json`;
+
 // --- JSON / CORS helpers ----------------------------------------------------
 
 function json(body: unknown, status = 200) {
@@ -84,13 +90,149 @@ async function verifyJwt(token: string): Promise<Record<string, unknown> | null>
 
 interface AuthedUser { sub: string; username: string }
 
+// --- Ecosystem (single sign-on) tokens -------------------------------------
+//
+// MoneyOS now accepts two kinds of token. Its own HS256 tokens, so sessions
+// opened before this change keep working, and the ecosystem's EdDSA tokens, so
+// signing in once anywhere in the ecosystem reaches MoneyOS too. This works
+// because the migration into identity.users kept every user's id: an ecosystem
+// token's `sub` is already the `user_id` on every MoneyOS row.
+//
+// The public keys are fetched from the identity service and cached. A token is
+// only accepted if it also carries a MoneyOS grant, so access to MoneyOS stays
+// a deliberate grant rather than a side effect of having any account.
+
+interface JwkCacheEntry { key: CryptoKey; alg: string }
+const jwkCache = new Map<string, JwkCacheEntry>();
+let jwksFetchedAt = 0;
+
+async function loadEcosystemKeys(): Promise<void> {
+  // Refresh at most every five minutes; a key rotation is rare and a stale miss
+  // just triggers one more fetch below.
+  if (Date.now() - jwksFetchedAt < 5 * 60_000 && jwkCache.size > 0) return;
+  try {
+    const res = await fetch(ECOSYSTEM_JWKS_URL);
+    if (!res.ok) return;
+    const { keys } = await res.json() as { keys: Array<Record<string, unknown>> };
+    for (const jwk of keys) {
+      const kid = jwk.kid as string;
+      if (!kid || jwkCache.has(kid)) continue;
+      const alg = (jwk.alg as string) === "EdDSA" ? "Ed25519" : "";
+      if (!alg) continue;
+      const key = await crypto.subtle.importKey("jwk", jwk as JsonWebKey, { name: "Ed25519" }, false, ["verify"]);
+      jwkCache.set(kid, { key, alg: "EdDSA" });
+    }
+    jwksFetchedAt = Date.now();
+  } catch {
+    // Unreachable identity service: fall through, and the caller treats the
+    // ecosystem token as unverifiable rather than trusting it.
+  }
+}
+
+async function verifyEcosystemJwt(token: string): Promise<Record<string, unknown> | null> {
+  const parts = token.split(".");
+  if (parts.length !== 3) return null;
+  let header: Record<string, unknown>;
+  try {
+    header = JSON.parse(new TextDecoder().decode(base64UrlDecode(parts[0])));
+  } catch {
+    return null;
+  }
+  if (header.alg !== "EdDSA" || typeof header.kid !== "string") return null;
+
+  let entry = jwkCache.get(header.kid);
+  if (!entry) { await loadEcosystemKeys(); entry = jwkCache.get(header.kid); }
+  if (!entry) return null;
+
+  const valid = await crypto.subtle.verify(
+    { name: "Ed25519" },
+    entry.key,
+    base64UrlDecode(parts[2]),
+    new TextEncoder().encode(`${parts[0]}.${parts[1]}`),
+  );
+  if (!valid) return null;
+
+  let payload: Record<string, unknown>;
+  try {
+    payload = JSON.parse(new TextDecoder().decode(base64UrlDecode(parts[1])));
+  } catch {
+    return null;
+  }
+  if (typeof payload.exp !== "number" || Date.now() / 1000 > payload.exp) return null;
+  if (payload.iss !== ECOSYSTEM_ISSUER) return null;
+  // Having an ecosystem account is not the same as being allowed into MoneyOS.
+  const apps = payload.apps as Record<string, string> | undefined;
+  if (!apps || !apps.moneyos) return null;
+  return payload;
+}
+
+// Ids MoneyOS has confirmed it holds a user row for, so the common case - a
+// migrated user signing in again - costs no query after the first request.
+const provisionedIds = new Set<string>();
+
+/**
+ * Makes sure an SSO user has a MoneyOS user row.
+ *
+ * MoneyOS keeps its own `users` table so it stays separable from the rest of the
+ * ecosystem; its rows reference that table, not identity.users. The five
+ * migrated accounts are already there with matching ids. Anyone new arriving
+ * through single sign-on is provisioned here on first touch: a row with the same
+ * id as their identity, a password that can never match (they sign in through
+ * the ecosystem, never here), and the same default wallet a signup would create.
+ */
+async function ensureMoneyosUser(payload: Record<string, unknown>): Promise<void> {
+  const id = payload.sub as string;
+  if (provisionedIds.has(id)) return;
+
+  const existing = await pg(`/users${qs({ id: `eq.${id}`, select: "id" })}`);
+  if (Array.isArray(existing) && existing.length > 0) { provisionedIds.add(id); return; }
+
+  const username = (payload.username as string) || `user_${id.slice(0, 8)}`;
+  const email = (payload.email as string) || `${username}@ecosystem.local`;
+  try {
+    await pg(`/users`, {
+      method: "POST",
+      // A race between two first requests must not error; ignore a duplicate.
+      headers: { Prefer: "resolution=ignore-duplicates" },
+      body: JSON.stringify({
+        id, email, username,
+        // Not a bcrypt hash, so the legacy password path can never match it.
+        // These accounts exist only to own MoneyOS rows; they sign in via SSO.
+        password_hash: "sso-managed",
+        display_name: username,
+      }),
+    });
+    await pg(`/accounts`, {
+      method: "POST",
+      body: JSON.stringify({ user_id: id, name: "Cash", type: "cash", icon: "banknote", color: "#16a34a" }),
+    });
+  } catch {
+    // Another concurrent request likely created it; the id check on the next
+    // request will confirm and cache it.
+  }
+  provisionedIds.add(id);
+}
+
 async function requireAuth(req: Request): Promise<AuthedUser | null> {
   const header = req.headers.get("authorization") ?? "";
   const token = header.replace(/^Bearer\s+/i, "").trim();
   if (!token) return null;
+
+  // Read the token's own header to decide which verifier applies, rather than
+  // trying both blindly. Ecosystem tokens are EdDSA; MoneyOS's own are HS256.
+  let alg = "";
+  try { alg = JSON.parse(new TextDecoder().decode(base64UrlDecode(token.split(".")[0]))).alg ?? ""; } catch { /* fall through */ }
+
+  if (alg === "EdDSA") {
+    const payload = await verifyEcosystemJwt(token);
+    if (!payload || typeof payload.sub !== "string") return null;
+    await ensureMoneyosUser(payload);
+    return { sub: payload.sub, username: (payload.username as string) ?? "" };
+  }
+
   const payload = await verifyJwt(token);
   if (!payload || typeof payload.sub !== "string") return null;
-  return { sub: payload.sub, username: payload.username as string };
+  return { sub: payload.sub, username: (payload.username as string) ?? "" };
 }
 
 // --- PostgREST client (plain fetch, moneyos schema, service-role) ---------
