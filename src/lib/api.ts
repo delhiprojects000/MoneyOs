@@ -8,12 +8,12 @@
  * @module api
  */
 
-import { getToken, clearToken } from './authToken';
+import { session } from './session';
 
 const FUNCTIONS_BASE = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/moneyos`;
 
 async function call(path: string, init: RequestInit = {}) {
-  const token = getToken();
+  const token = await session.getAccessToken();
   const res = await fetch(`${FUNCTIONS_BASE}${path}`, {
     ...init,
     headers: {
@@ -23,7 +23,8 @@ async function call(path: string, init: RequestInit = {}) {
   });
 
   if (res.status === 401) {
-    clearToken();
+    // The shared session handles its own refresh; a 401 here means it is truly
+    // over, so let it fall through as an error the UI reports.
     throw new Error('Your session has expired. Please log in again.');
   }
 
@@ -465,7 +466,7 @@ export const upload = {
     const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
     const fileName = `${crypto.randomUUID()}-${safeName}`;
     const buffer = await file.arrayBuffer();
-    const token = getToken();
+    const token = await session.getAccessToken();
     const res = await fetch(`${FUNCTIONS_BASE}/upload`, {
       method: 'POST',
       headers: {

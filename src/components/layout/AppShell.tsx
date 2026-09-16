@@ -10,6 +10,8 @@ import {
   Menu, LogOut,
 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
+import { AppSwitcher } from '@completeos/ui';
+import { session } from '@/lib/session';
 import { Button } from '@/components/ui/button';
 import { Sheet, SheetContent, SheetTrigger } from '@/components/ui/sheet';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
@@ -84,7 +86,10 @@ export function AppShell() {
               <LogoBadge className="h-8 w-8" />
               <span className="text-lg font-semibold">MoneyOS</span>
             </Link>
-            <NotificationsBell />
+            <div className="flex items-center gap-1">
+              <AppSwitcher current="moneyos" hasApp={(app) => session.hasApp(app)} />
+              <NotificationsBell />
+            </div>
           </div>
           <NavLinks />
           <div className="mt-auto flex items-center gap-2 border-t border-border pt-4">

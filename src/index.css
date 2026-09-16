@@ -3,6 +3,11 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 
+/* Tailwind v4 does not scan node_modules, where the workspace packages are
+   symlinked, so the AppSwitcher and any other shared component would ship
+   without their classes. Point it at the shared UI source explicitly. */
+@source "../../../packages/ui/src";
+
 /* Tailwind v4 has no JS config file - dark mode is a variant targeting the
    .dark class (same behavior as the old darkMode: ["class"] JS config). */
 @custom-variant dark (&:is(.dark *));
