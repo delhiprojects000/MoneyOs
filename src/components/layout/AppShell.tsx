@@ -10,8 +10,8 @@ import {
   Menu, LogOut,
 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
-import { AppSwitcher } from '@completeos/ui';
-import { session } from '@/lib/session';
+import { AppSwitcher, Assistant } from '@completeos/ui';
+import { session, GATEWAY_URL } from '@/lib/session';
 import { Button } from '@/components/ui/button';
 import { Sheet, SheetContent, SheetTrigger } from '@/components/ui/sheet';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
@@ -143,6 +143,15 @@ export function AppShell() {
       <div className="fixed bottom-6 right-6 z-40">
         <QuickAddButton />
       </div>
+
+      {/* Cherry, the ecosystem assistant - lifted clear of the quick-add button */}
+      <Assistant
+        app="moneyos"
+        baseUrl={GATEWAY_URL}
+        getAccessToken={() => session.getAccessToken()}
+        enabled={session.hasApp('moneyos')}
+        positionClass="bottom-24 right-6"
+      />
     </div>
   );
 }
