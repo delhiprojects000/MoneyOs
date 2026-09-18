@@ -139,18 +139,17 @@ export function AppShell() {
         </div>
       </div>
 
-      {/* Floating quick-add, available everywhere */}
-      <div className="fixed bottom-6 right-6 z-40">
+      {/* Cherry stands in the very corner; the quick-add sits above her. */}
+      <div className="fixed bottom-44 right-6 z-40">
         <QuickAddButton />
       </div>
 
-      {/* Cherry, the ecosystem assistant - lifted clear of the quick-add button */}
       <Assistant
         app="moneyos"
         baseUrl={GATEWAY_URL}
         getAccessToken={() => session.getAccessToken()}
         enabled={session.hasApp('moneyos')}
-        positionClass="bottom-24 right-6"
+        positionClass="bottom-2 right-4 sm:bottom-3 sm:right-6"
       />
     </div>
   );

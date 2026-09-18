@@ -23,6 +23,8 @@ import { preventAccidentalDialogClose } from '@/lib/utils';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import { SettingsSkeleton } from '@/components/skeletons/pages';
+import { AiKeySettings } from '@completeos/ui';
+import { session, GATEWAY_URL } from '@/lib/session';
 
 const CURRENCIES = ['INR', 'USD', 'EUR', 'GBP', 'AED', 'SGD'];
 const PALETTE_LABELS: Record<Exclude<ColorPalette, 'custom'>, string> = {
@@ -45,12 +47,25 @@ export default function Settings() {
         <>
           <ProfileCard />
           <AppearanceCard />
+          <AiKeysCard />
           <CategoriesCard />
           <PaymentMethodsCard />
           <DataExportCard />
         </>
       )}
     </div>
+  );
+}
+
+/** One AI key for the whole ecosystem - the same panel every app shows,
+ *  writing to the shared identity store. */
+function AiKeysCard() {
+  return (
+    <Card>
+      <CardContent className="pt-6">
+        <AiKeySettings baseUrl={GATEWAY_URL} getAccessToken={() => session.getAccessToken()} />
+      </CardContent>
+    </Card>
   );
 }
 
