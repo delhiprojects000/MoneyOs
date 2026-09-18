@@ -139,8 +139,9 @@ export function AppShell() {
         </div>
       </div>
 
-      {/* Cherry stands in the very corner; the quick-add sits above her. */}
-      <div className="fixed bottom-44 right-6 z-40">
+      {/* Cherry stands in the very corner; the quick-add sits directly above
+          her, sharing the same centre so the two line up vertically. */}
+      <div className="fixed bottom-44 right-4 z-40 flex w-24 justify-center">
         <QuickAddButton />
       </div>
 
@@ -149,7 +150,6 @@ export function AppShell() {
         baseUrl={GATEWAY_URL}
         getAccessToken={() => session.getAccessToken()}
         enabled={session.hasApp('moneyos')}
-        positionClass="bottom-2 right-4 sm:bottom-3 sm:right-6"
       />
     </div>
   );
