@@ -30,6 +30,13 @@
 
 ---
 
+> **Where this builds.** This repository is a read-only mirror of `apps/moneyos` in the
+> [CompleteOS](https://github.com/Dileepadari/CompleteOS) monorepo, kept in sync as a git subtree. It depends on workspace packages (`@completeos/auth-client`, `@completeos/ui`) that are
+> not published to npm, so `npm ci` inside this repository alone cannot resolve them.
+> Clone the monorepo and run `npm ci` from its root, then work in `apps/moneyos`;
+> CI for this app runs there, not here.
+
+
 ## Contents
 
 - [Why this project matters](#why-this-project-matters)
@@ -209,7 +216,7 @@ Leave the statement day blank and the card falls back to treating the entire out
 
 ### Tracking a loan or EMI
 
-**EMIs and Bills → EMIs and Loans → Add loan.** Enter the principal, annual rate, tenure and the account it debits. **Suggest** computes the standard EMI from those numbers if you do not have the figure to hand.
+**EMIs and Bills > EMIs and Loans > Add loan.** Enter the principal, annual rate, tenure and the account it debits. **Suggest** computes the standard EMI from those numbers if you do not have the figure to hand.
 
 Saving generates the full instalment schedule. Expand a loan to see it, and **Mark paid** on an instalment records a real transaction against the debiting account and closes the loan once nothing is left.
 
@@ -227,11 +234,11 @@ Both feed the dashboard's upcoming dues and the notifications bell. The bell sho
 
 ### Budgets
 
-**Budgets → New budget.** Pick a category and a monthly limit. Progress is measured against the calendar month, and going over is shown in red with the overspend amount rather than a bar quietly stopping at 100%.
+**Budgets > New budget.** Pick a category and a monthly limit. Progress is measured against the calendar month, and going over is shown in red with the overspend amount rather than a bar quietly stopping at 100%.
 
 ### Goals
 
-**Goals → New goal.** Give it a target amount and optionally a target date. MoneyOS shows the monthly contribution needed to hit that date. **Add contribution** moves the goal forward.
+**Goals > New goal.** Give it a target amount and optionally a target date. MoneyOS shows the monthly contribution needed to hit that date. **Add contribution** moves the goal forward.
 
 ### Reading the reports
 
@@ -241,11 +248,11 @@ Two things to know. Uncategorised spend gets its own bucket rather than being dr
 
 ### Theming
 
-**Settings → Appearance.** Light or dark, six accent palettes, and a custom colour if none fit. The choice is stored per device.
+**Settings > Appearance.** Light or dark, six accent palettes, and a custom colour if none fit. The choice is stored per device.
 
 ### Exporting your data
 
-**Settings → Export.** CSV for a spreadsheet, JSON for anything else. Your data is yours and it is not locked in.
+**Settings > Export.** CSV for a spreadsheet, JSON for anything else. Your data is yours and it is not locked in.
 
 ## Getting started
 
