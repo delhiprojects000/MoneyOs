@@ -326,7 +326,7 @@ function TransferDialog({ open, onOpenChange, accounts, currency }: { open: bool
     try {
       const fromName = accounts.find((a) => a.id === from)?.name ?? 'Account';
       const toName = accounts.find((a) => a.id === to)?.name ?? 'Account';
-      await transfer.mutateAsync({ from, to, amount: Number(amount), description: `${fromName} → ${toName}` });
+      await transfer.mutateAsync({ from, to, amount: Number(amount), description: `${fromName} > ${toName}` });
       toast.success('Transferred');
       onOpenChange(false);
       setAmount('');
