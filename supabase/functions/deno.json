@@ -1,0 +1,8 @@
+{
+  "//": "Deno config for this app's edge function. `deno check` needs it to resolve the npm: specifier without a node_modules directory; without --config, Deno looks for a config relative to the working directory, finds the workspace package.json, and switches to manual node_modules resolution. Added when CI started checking this file, which until then had never been type-checked anywhere: it was carrying a BufferSource mismatch in its JWT verifier and a dead-branch spread in the trend builder.",
+  "nodeModulesDir": "none",
+  "lock": false,
+  "imports": {
+    "bcryptjs": "npm:bcryptjs@2"
+  }
+}

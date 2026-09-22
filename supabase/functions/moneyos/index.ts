@@ -16,9 +16,35 @@ import bcrypt from "npm:bcryptjs@2";
 
 // --- Environment -----------------------------------------------------------
 
+/**
+ * Reads a secret that has no sensible default.
+ *
+ * Both of the values below were previously `?? ""`, which does not fail: it
+ * defers. An empty `MONEYOS_JWT_SECRET` reaches Web Crypto as a zero-length
+ * HMAC key and throws "Key length is zero" from inside a request handler, which
+ * reads like a bug in the signing code rather than a missing deploy setting. An
+ * empty service-role key turns every PostgREST call into an unexplained 401.
+ * Failing at boot, naming the variable, is the difference between a five-minute
+ * fix and an afternoon.
+ *
+ * @param name The environment variable to read.
+ * @returns Its value, guaranteed non-empty.
+ * @throws If it is unset or empty.
+ */
+function requiredSecret(name: string): string {
+  const value = Deno.env.get(name);
+  if (!value) {
+    throw new Error(
+      `${name} is not set. Set it on the host before deploying; ` +
+        "there is deliberately no default.",
+    );
+  }
+  return value;
+}
+
 const POSTGREST_URL = Deno.env.get("POSTGREST_URL") ?? "http://rest:3000";
-const SERVICE_ROLE_KEY = Deno.env.get("SERVICE_ROLE_KEY") ?? "";
-const MONEYOS_JWT_SECRET = Deno.env.get("MONEYOS_JWT_SECRET") ?? "";
+const SERVICE_ROLE_KEY = requiredSecret("SERVICE_ROLE_KEY");
+const MONEYOS_JWT_SECRET = requiredSecret("MONEYOS_JWT_SECRET");
 const SCHEMA = "moneyos";
 const JWT_TTL_SECONDS = 60 * 60 * 24 * 30; // 30 days - daily-use personal tool, not a shared workspace
 
@@ -54,10 +80,18 @@ function base64UrlEncode(bytes: Uint8Array): string {
   return btoa(str).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 }
 
-function base64UrlDecode(str: string): Uint8Array {
+// Returns Uint8Array<ArrayBuffer>, not the default Uint8Array<ArrayBufferLike>
+// that `Uint8Array.from` yields: Web Crypto's BufferSource excludes
+// SharedArrayBuffer-backed views, so the looser type will not pass to
+// crypto.subtle.verify. This is the mismatch that bites every hand-rolled JWT
+// verifier, and nothing caught it here because no CI job had ever type-checked
+// this file.
+function base64UrlDecode(str: string): Uint8Array<ArrayBuffer> {
   const padded = str.replace(/-/g, "+").replace(/_/g, "/").padEnd(str.length + ((4 - (str.length % 4)) % 4), "=");
   const binary = atob(padded);
-  return Uint8Array.from(binary, (c) => c.charCodeAt(0));
+  const bytes = new Uint8Array(new ArrayBuffer(binary.length));
+  for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
+  return bytes;
 }
 
 async function hmacKey(secret: string) {
@@ -1091,7 +1125,13 @@ function buildTrend(
   const last = granularity === "day" ? end : end.slice(0, 7);
   let cursor = granularity === "day" ? start : start.slice(0, 7);
   for (let i = 0; cursor <= last && i < 400; i++) {
-    out.push({ date: cursor, income: 0, expense: 0, ...totals[cursor] });
+    // Explicit lookup rather than `{ income: 0, expense: 0, ...totals[cursor] }`.
+    // A period with no transactions has no entry at all, and spreading
+    // `undefined` to fall back on the zeros only worked by accident: the
+    // Record type says the key is always present, so the zeros read as dead
+    // code that the spread always overwrites.
+    const period = totals[cursor] as { income: number; expense: number } | undefined;
+    out.push({ date: cursor, income: period?.income ?? 0, expense: period?.expense ?? 0 });
     cursor = granularity === "day" ? shiftDays(cursor, 1) : shiftMonths(`${cursor}-01`, 1).slice(0, 7);
   }
   return out;
