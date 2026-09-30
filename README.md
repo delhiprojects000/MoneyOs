@@ -61,13 +61,17 @@ It also handles the obligations that arrive without you doing anything: an EMI i
 
 ## Where it came from
 
-Two things the author kept hitting, both visible in how the app is built:
+**Nothing could say how the month had gone.** Spending was spread across several places at once
+and each of them knew only its own slice, so the questions that actually matter had no answer: what
+a month costs, where it goes, whether that is better or worse than the one before. Installing
+another tracker would only have added one more place. The money side became part of one personal
+ecosystem instead, which is the whole reason this is MoneyOS and not another budgeting app.
+
+Two more things the author kept hitting, both visible in how the app is built:
 
 **Credit cards were always wrong.** Every tracker treated a card as one balance with one due date. A real card has two dates: the statement day that closes a cycle, and the due day by which that closed cycle must be paid. Anything swiped after the statement closes belongs to next month's bill, however large it already is. MoneyOS models both dates, and the accounts screen shows the split directly: what is billed, and what is not yet billed.
 
 **Splitting a bill broke the numbers.** Paying ₹5,800 for a group dinner and getting ₹4,350 back is not ₹5,800 of spending. The ledger records what actually left your account, and keeps the group total and headcount alongside it, so reports can say both "you spent ₹1,450" and "you fronted ₹14,240 across group hangouts this year".
-
-<!-- TODO: inspiration - if there is a specific story behind starting this (a month the numbers did not add up, a card bill that surprised you), it belongs here. Ask before writing one. -->
 
 ## Screenshots
 
